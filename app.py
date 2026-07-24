@@ -1,15 +1,15 @@
 """Exam Question Predictor — a clean, ChatGPT-style app.
 
-Left sidebar = controls (space, papers, quick actions, tools).
-Main area = the chat conversation. Nothing is open all at once.
+Left sidebar = your chats, documents, quick actions and tools.
+Main area = the current conversation.
 """
 import os
 import re
 import tempfile
+import time
 
 import streamlit as st
 
-# On Streamlit Cloud, pull keys from Secrets into the environment BEFORE importing our code.
 for _k in ("GEMINI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX", "PINECONE_CLOUD", "PINECONE_REGION"):
     try:
         if _k in st.secrets:
@@ -39,7 +39,7 @@ QUICK = {
     "🧠 Explain top topic": "Explain the single most likely topic in simple points.",
 }
 
-# =================== SIDEBAR (controls) ===================
+# =================== SIDEBAR ===================
 picked = None
 with st.sidebar:
     st.markdown("## 📚 Exam Predictor")
@@ -48,10 +48,65 @@ with st.sidebar:
     namespace = re.sub(r"[^a-z0-9_-]", "", raw.strip().lower())
 
     if namespace:
+        # one-time init for this space this session
+        if not st.session_state.get(f"init_{namespace}"):
+            try:
+                pipeline.purge_old(namespace)
+            except Exception:
+                pass
+            try:
+                threads = pipeline.list_threads(namespace)
+            except Exception:
+                threads = []
+            cur = threads[0]["thread"] if threads else "main"
+            st.session_state[f"cur_{namespace}"] = cur
+            try:
+                st.session_state[f"chat_{namespace}"] = pipeline.load_chat(namespace, cur)
+            except Exception:
+                st.session_state[f"chat_{namespace}"] = []
+            st.session_state[f"init_{namespace}"] = True
+
+        cur = st.session_state.get(f"cur_{namespace}", "main")
+        chat_key = f"chat_{namespace}"
+        st.session_state.setdefault(chat_key, [])
+
         st.caption(f"Space: **{namespace}**  ·  🕒 auto-deletes after 15 days")
         st.divider()
 
-        with st.expander("📄 Papers", expanded=False):
+        # ---- Chats ----
+        if st.button("🆕 New chat", use_container_width=True):
+            cur = "t-" + str(int(time.time()))
+            st.session_state[f"cur_{namespace}"] = cur
+            st.session_state[chat_key] = []
+        st.markdown("**💬 Your chats**")
+        try:
+            all_threads = pipeline.list_threads(namespace)
+        except Exception:
+            all_threads = []
+        if all_threads:
+            for t in all_threads[:12]:
+                mark = "🟢 " if t["thread"] == cur else ""
+                if st.button(mark + t["title"], key="th_" + t["thread"], use_container_width=True):
+                    st.session_state[f"cur_{namespace}"] = t["thread"]
+                    st.session_state[chat_key] = pipeline.load_chat(namespace, t["thread"])
+                    cur = t["thread"]
+        else:
+            st.caption("No chats yet — ask something below.")
+        st.divider()
+
+        # ---- Documents ----
+        st.markdown("**📄 Your documents**")
+        try:
+            docs = pipeline.list_documents(namespace)
+        except Exception:
+            docs = []
+        if docs:
+            for name, cnt in docs[:15]:
+                short = name if len(name) <= 30 else name[:27] + "…"
+                st.caption(f"• {short}  ({cnt})")
+        else:
+            st.caption("No papers yet.")
+        with st.expander("➕ Add papers"):
             uploaded = st.file_uploader("Upload past papers", type=["pdf", "docx", "txt", "md"],
                                         accept_multiple_files=True)
             if uploaded and st.button("Learn these files", use_container_width=True):
@@ -66,25 +121,20 @@ with st.sidebar:
                     prog.progress(i / len(uploaded))
                 st.success(f"Learned {total} questions.")
             st.caption("Tip: name files with the year, e.g. `physics_2019.pdf`.")
-            if st.button("🗑️ Reset this space", use_container_width=True):
-                pipeline.reset_space(namespace)
-                st.session_state.pop(f"chat_{namespace}", None)
-                st.session_state.pop(f"init_{namespace}", None)
-                st.session_state.pop("dash", None)
-                st.session_state.pop("acc", None)
-                st.success("Space cleared.")
-
         st.divider()
-        st.markdown("**⚡ Quick actions**")
+
+        # ---- Quick actions ----
+        st.markdown("**⚡ Suggested**")
         for label, qtext in QUICK.items():
             if st.button(label, use_container_width=True):
                 picked = qtext
-
         st.divider()
-        st.markdown("**🛠️ Tools**")
+
+        # ---- Tools ----
+        st.markdown("**📊 Tools**")
         if st.button("📈 Topic dashboard", use_container_width=True):
             st.session_state["dash"] = True
-        with st.expander("✅ Check accuracy"):
+        with st.expander("✅ Compare with a real paper"):
             actual_file = st.file_uploader("Upload the real recent paper",
                                            type=["pdf", "docx", "txt", "md"], key="actual")
             if actual_file and st.button("Compare", use_container_width=True):
@@ -99,45 +149,42 @@ with st.sidebar:
                     except Exception:
                         pass
                 st.session_state["acc"] = result
+        with st.expander("⚙️ Manage"):
+            if st.button("🗑️ Reset this space", use_container_width=True):
+                pipeline.reset_space(namespace)
+                for k in (chat_key, f"init_{namespace}", f"cur_{namespace}"):
+                    st.session_state.pop(k, None)
+                st.session_state.pop("dash", None)
+                st.session_state.pop("acc", None)
+                st.success("Space cleared.")
     else:
         st.info("Enter a space name to begin.")
 
-# =================== MAIN AREA ===================
+# =================== MAIN ===================
 if not namespace:
     st.title("📚 Exam Question Predictor")
     st.write("Upload past papers, then just chat — predict likely topics, get study plans, and check accuracy.")
     st.info("← Enter a **space name** in the sidebar to begin.")
     st.stop()
 
-# One-time per session: auto-delete >15-day data, restore saved chat.
-if not st.session_state.get(f"init_{namespace}"):
-    try:
-        pipeline.purge_old(namespace)
-    except Exception:
-        pass
-    try:
-        st.session_state[f"chat_{namespace}"] = pipeline.load_chat(namespace)
-    except Exception:
-        st.session_state[f"chat_{namespace}"] = []
-    st.session_state[f"init_{namespace}"] = True
-
+cur = st.session_state.get(f"cur_{namespace}", "main")
 chat_key = f"chat_{namespace}"
 st.session_state.setdefault(chat_key, [])
 
 st.title("💬 Study assistant")
 
-# --- Dashboard panel (only when opened from the sidebar) ---
+# --- Dashboard panel (toggled from sidebar) ---
 if st.session_state.get("dash"):
     with st.container(border=True):
-        cols = st.columns([6, 1])
-        cols[0].markdown("### 📈 Topic dashboard")
-        if cols[1].button("✖ Hide"):
+        c = st.columns([6, 1])
+        c[0].markdown("### 📈 Topic dashboard")
+        if c[1].button("✖ Hide"):
             st.session_state.pop("dash", None)
             st.rerun()
         with st.spinner("Computing…"):
             total, rows, series = pipeline.predict(namespace)
         if total == 0:
-            st.info("Add some papers first (sidebar → Papers).")
+            st.info("Add some papers first (sidebar → Documents → Add papers).")
         else:
             import pandas as pd
             import altair as alt
@@ -185,23 +232,23 @@ if st.session_state.get("dash"):
                     tooltip=["topic", "count"]).properties(height=280)
                 st.altair_chart(dn, use_container_width=True)
 
-# --- Accuracy panel (only after a comparison) ---
+# --- Accuracy panel (toggled after a comparison) ---
 if st.session_state.get("acc") is not None:
     result = st.session_state["acc"]
     with st.container(border=True):
-        cols = st.columns([6, 1])
-        cols[0].markdown("### ✅ Accuracy check")
-        if cols[1].button("✖ Hide", key="hideacc"):
+        c = st.columns([6, 1])
+        c[0].markdown("### ✅ Accuracy check")
+        if c[1].button("✖ Hide", key="hideacc"):
             st.session_state.pop("acc", None)
             st.rerun()
         if not result or result.get("actual_count", 0) == 0:
             st.info("Couldn't read that paper, or add past papers first.")
         else:
             m, p = result["match_pct"], result["precision_pct"]
-            a, b, c = st.columns(3)
+            a, b, c2 = st.columns(3)
             a.metric("Prediction accuracy", f"{m}%")
             b.metric("Precision", f"{p}%")
-            c.metric("Topics in real paper", result["actual_count"])
+            c2.metric("Topics in real paper", result["actual_count"])
             verdict = ("Strong — reliable for this subject." if m >= 80
                        else "Decent — add a few more past papers." if m >= 50
                        else "Add more past papers to make it reliable.")
@@ -213,13 +260,13 @@ if st.session_state.get("acc") is not None:
                  for r in result["results"]],
                 use_container_width=True, hide_index=True)
 
-# --- The chat ---
+# --- Conversation ---
 for msg in st.session_state[chat_key]:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 if not st.session_state[chat_key]:
-    st.caption("👋 Add papers in the sidebar, then ask me anything — or use a Quick action.")
+    st.caption("👋 Add papers in the sidebar, then ask me anything — or tap a Suggested action.")
 
 typed = st.chat_input("Ask anything about your papers…")
 user_msg = picked or typed
@@ -299,7 +346,7 @@ if user_msg:
 
     st.session_state[chat_key].append({"role": "assistant", "content": assistant_md})
     try:
-        pipeline.save_chat_message(namespace, "user", user_msg)
-        pipeline.save_chat_message(namespace, "assistant", assistant_md)
+        pipeline.save_chat_message(namespace, "user", user_msg, thread=cur)
+        pipeline.save_chat_message(namespace, "assistant", assistant_md, thread=cur)
     except Exception:
         pass

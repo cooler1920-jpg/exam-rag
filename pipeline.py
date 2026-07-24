@@ -357,22 +357,60 @@ def reset_space(namespace):
 RETENTION_DAYS = 15
 
 
-def save_chat_message(namespace, role, content):
-    """Persist one chat message so the conversation survives a page refresh."""
+def save_chat_message(namespace, role, content, thread="main"):
+    """Persist one chat message (in a named thread) so it survives a refresh."""
     index = rag.get_index()
     ts = time.time()
-    meta = {"role": role, "content": content[:4000], "created_at": int(ts), "order": ts}
+    meta = {"role": role, "content": content[:4000], "created_at": int(ts),
+            "order": ts, "thread": thread}
     index.upsert(vectors=[("msg-" + str(int(ts * 1000)), [0.1] * config.EMBED_DIM, meta)],
                  namespace=_chat_ns(namespace))
 
 
-def load_chat(namespace):
+def load_chat(namespace, thread=None):
     index = rag.get_index()
-    res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=200,
+    res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=500,
                       include_metadata=True, namespace=_chat_ns(namespace))
     items = [m["metadata"] for m in res.get("matches", [])]
+    if thread is not None:
+        items = [m for m in items if m.get("thread", "main") == thread]
     items.sort(key=lambda x: x.get("order", 0))
     return [{"role": m.get("role", "assistant"), "content": m.get("content", "")} for m in items]
+
+
+def list_threads(namespace):
+    """List past chat conversations (newest first) with a short title."""
+    index = rag.get_index()
+    res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=500,
+                      include_metadata=True, namespace=_chat_ns(namespace))
+    threads = {}
+    for m in res.get("matches", []):
+        md = m["metadata"]
+        th = md.get("thread", "main")
+        t = threads.setdefault(th, {"thread": th, "title": None, "title_order": 1e18, "last": 0})
+        o = md.get("order", 0)
+        t["last"] = max(t["last"], o)
+        if md.get("role") == "user" and o < t["title_order"]:
+            t["title_order"] = o
+            t["title"] = (md.get("content", "") or "Chat")[:38]
+    out = list(threads.values())
+    for t in out:
+        t["title"] = t["title"] or "Chat"
+    out.sort(key=lambda x: -x["last"])
+    return out
+
+
+def list_documents(namespace):
+    """List uploaded papers in this space with question counts."""
+    index = rag.get_index()
+    res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=1000,
+                      include_metadata=True, namespace=namespace)
+    seen = {}
+    for m in res.get("matches", []):
+        s = m["metadata"].get("source")
+        if s:
+            seen[s] = seen.get(s, 0) + 1
+    return sorted(seen.items())
 
 
 def purge_old(namespace, days=RETENTION_DAYS):
