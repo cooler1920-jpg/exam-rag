@@ -5,6 +5,7 @@ so different people's papers never mix. Empty namespace = the default (local) sp
 import math
 import os
 import re
+import time
 import uuid
 from collections import Counter, defaultdict
 
@@ -263,6 +264,41 @@ def compare(namespace, actual_topics, likely_threshold=50, match_threshold=0.80)
     results.sort(key=lambda r: -r["prob"])
     return {"match_pct": recall, "precision_pct": precision, "actual_count": a_total,
             "results": results, "hits": hits, "surprises": surprises, "false_alarms": false_alarms}
+
+
+# --- HISTORY: remember each accuracy check so reliability builds up over time ---
+def _hist_ns(namespace):
+    return (namespace or "default") + "__hist"
+
+
+def save_backtest(namespace, result, paper=""):
+    index = rag.get_index()
+    vid = "bt-" + str(int(time.time() * 1000))
+    meta = {
+        "accuracy": result["match_pct"], "precision": result["precision_pct"],
+        "actual": result["actual_count"], "paper": paper[:120],
+        "date": time.strftime("%Y-%m-%d %H:%M"),
+    }
+    index.upsert(vectors=[(vid, [0.1] * config.EMBED_DIM, meta)], namespace=_hist_ns(namespace))
+
+
+def get_history(namespace):
+    index = rag.get_index()
+    res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=100,
+                      include_metadata=True, namespace=_hist_ns(namespace))
+    items = [m["metadata"] for m in res.get("matches", [])]
+    items.sort(key=lambda x: x.get("date", ""))
+    return items
+
+
+def reset_space(namespace):
+    """Delete everything in a space (its questions and its accuracy history)."""
+    index = rag.get_index()
+    for ns in (namespace, _hist_ns(namespace)):
+        try:
+            index.delete(delete_all=True, namespace=ns)
+        except Exception:
+            pass
 
 
 # --- CHAT: a conversation that remembers, grounded in the student's papers ---

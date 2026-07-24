@@ -32,6 +32,21 @@ if not namespace:
     st.stop()
 st.success(f"Working in space: **{namespace}**")
 
+with st.expander("ℹ️ How to use this app"):
+    st.markdown(
+        "1. **Add past papers** (section 1) → click *Learn these files*.\n"
+        "2. Click **Predict topics** (section 3) — likely topics, charts and a study plan.\n"
+        "3. **Check accuracy** (section 4) — upload the real recent paper to score the prediction.\n"
+        "4. **Chat** (section 5) — ask anything about your papers.\n\n"
+        "Tip: name files with the year (e.g. `physics_2019.pdf`) for the best trends."
+    )
+with st.expander("🔧 Manage this space"):
+    st.caption("This permanently deletes all papers and history in the current space.")
+    if st.button("Reset this space"):
+        pipeline.reset_space(namespace)
+        st.session_state.pop(f"chat_{namespace}", None)
+        st.success("Space cleared. Upload papers to start again.")
+
 # --- 1. Add papers ---
 st.header("1. Add your past papers")
 uploaded = st.file_uploader(
@@ -194,6 +209,26 @@ if actual_file and st.button("Compare with my prediction"):
         st.success(f"✅ Our prediction correctly covered **{result['match_pct']}%** of the topics "
                    f"that actually came in the exam.")
         st.caption("Add more past papers to push this accuracy higher — that's how the app proves itself.")
+
+        # Save to this space's accuracy history and show how accuracy tracks over time.
+        try:
+            pipeline.save_backtest(namespace, result, actual_file.name)
+        except Exception:
+            pass
+        hist = pipeline.get_history(namespace)
+        if hist:
+            st.markdown("#### Accuracy history for this space")
+            import pandas as pd
+            import altair as alt
+            hdf = pd.DataFrame(hist)
+            hline = alt.Chart(hdf).mark_line(point=True).encode(
+                x=alt.X("date:N", title="Checked at", sort=None),
+                y=alt.Y("accuracy:Q", title="Accuracy (%)", scale=alt.Scale(domain=[0, 100])),
+                tooltip=["date", "accuracy", "precision", "paper"],
+            ).properties(height=240)
+            st.altair_chart(hline, use_container_width=True)
+            avg = round(sum(h["accuracy"] for h in hist) / len(hist))
+            st.caption(f"Average accuracy across {len(hist)} check(s): {avg}%.")
 
 # --- 5. Chat with your papers (remembers the conversation) ---
 st.header("5. Chat with your papers")
