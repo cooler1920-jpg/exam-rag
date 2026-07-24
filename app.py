@@ -245,6 +245,14 @@ if actual_file and st.button("Compare with my prediction"):
                  help="Of the topics we flagged as likely, how many actually appeared.")
         c.metric("Topics in real paper", result["actual_count"])
 
+        m, p = result["match_pct"], result["precision_pct"]
+        verdict = ("Strong result — the prediction is reliable for this subject." if m >= 80
+                   else "Decent — add a few more past papers to push accuracy higher." if m >= 50
+                   else "The prediction needs more history — add more past papers to make it reliable.")
+        st.markdown("#### 📌 Summary")
+        st.info(f"The prediction correctly covered **{m}%** of the topics that actually appeared, "
+                f"and **{p}%** of the topics we flagged did come. {verdict}")
+
         st.markdown("#### Topic by topic")
         st.dataframe(
             [{"Topic in the real paper": r["actual"],
@@ -297,6 +305,12 @@ if user_msg:
         st.markdown(user_msg)
     with st.chat_message("assistant"):
         with st.spinner("Thinking…"):
-            reply = pipeline.chat(st.session_state[chat_key], namespace=namespace)
-        st.markdown(reply)
-    st.session_state[chat_key].append({"role": "assistant", "content": reply})
+            rep = pipeline.chat_structured(st.session_state[chat_key], namespace=namespace)
+        md = rep.get("answer", "")
+        for p in rep.get("points", []):
+            if isinstance(p, dict) and p.get("point"):
+                md += f"\n- **{p['point']}** — {p.get('detail', '')}"
+        st.markdown(md)
+        if rep.get("sources"):
+            st.caption("Sources: " + " · ".join(rep["sources"]))
+    st.session_state[chat_key].append({"role": "assistant", "content": md})

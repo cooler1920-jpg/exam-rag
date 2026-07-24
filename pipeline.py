@@ -375,3 +375,38 @@ def chat(history, namespace=""):
         f"CONVERSATION SO FAR:\n{convo}\n\nReply as Tutor:"
     )
     return rag._gen_text(prompt)
+
+
+def chat_structured(history, namespace=""):
+    """Same as chat() but returns a tidy structured reply for professional rendering."""
+    index = rag.get_index()
+    question = history[-1]["content"]
+    qvec = rag.embed(question, is_query=True)
+    res = index.query(vector=qvec, top_k=config.KEEP_AFTER_RERANK + 3,
+                      include_metadata=True, namespace=namespace)
+    matches = res.get("matches", [])[:config.KEEP_AFTER_RERANK]
+    context = "\n\n".join(
+        f"[{m['metadata']['source']}, page {m['metadata']['page']}] {m['metadata']['text']}"
+        for m in matches
+    ) or "(no papers uploaded in this space yet)"
+    convo = "\n".join(
+        f"{'Student' if h['role'] == 'user' else 'Tutor'}: {h['content']}"
+        for h in history[-6:]
+    )
+    prompt = (
+        "You are a professional, friendly exam tutor. Answer the student's latest question using the "
+        "exam-paper context and the conversation. Keep it short and easy to scan.\n"
+        'Return JSON: {"answer": a 1-2 sentence direct reply, '
+        '"points": list of {"point": short bold takeaway, "detail": 1 sentence} (only if useful, '
+        'else empty), "sources": list of "[paper, page]" strings you used}.\n\n'
+        f"EXAM-PAPER CONTEXT:\n{context}\n\nCONVERSATION:\n{convo}\n\nSTUDENT QUESTION:\n{question}"
+    )
+    try:
+        data = rag._gen_json(prompt)
+    except Exception:
+        data = {"answer": rag._gen_text(prompt), "points": [], "sources": []}
+    data.setdefault("answer", "")
+    for k in ("points", "sources"):
+        if not isinstance(data.get(k), list):
+            data[k] = []
+    return data
