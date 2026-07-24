@@ -65,8 +65,10 @@ _TRANSCRIBE_PROMPT = (
     '{"questions": [{"question_text": "...", "topic": "...", "marks": "..."}]}. '
     "For each question: question_text = the full question (write mathematics as plain "
     "text/LaTeX and describe any diagram, graph, or figure in words so it is searchable); "
-    "topic = your best short guess of the syllabus topic (e.g. 'Thermodynamics', "
-    "'Indian Freedom Movement'); marks = the marks shown, or empty string. "
+    "topic = a BROAD subject/chapter category in 1-3 words that MANY questions can share "
+    "(e.g. 'Pharmacology', 'Anatomy', 'Thermodynamics', 'Modern History'). Do NOT invent "
+    "narrow one-off sub-topics — keep it high-level so questions on the same subject get the "
+    "SAME topic; marks = the marks shown, or empty string. "
     "If the page has no real questions (cover page, instructions), return an empty list."
 )
 

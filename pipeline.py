@@ -113,17 +113,18 @@ def answer_structured(query, namespace=""):
     ) or "(no papers uploaded yet)"
 
     prompt = (
-        "You are a professional exam-analysis assistant. Answer the student's question as a concise, "
-        "well-structured report using ONLY the data below. Keep everything short, simple and specific.\n"
+        "You are a professional exam-analysis assistant. Answer the student's question as a SHORT, "
+        "scannable report using ONLY the data below. Be concrete and simple.\n"
         "Return JSON with exactly these keys:\n"
-        '  "summary": a 1-2 sentence direct answer,\n'
-        '  "findings": a list of {"point": short bold takeaway, "detail": 1-2 sentence explanation},\n'
-        '  "focus": a list of short study actions (strings),\n'
-        '  "breakdown": a list of {"label": string, "value": number 0-100} — ONLY when the question is '
-        "about topic importance/coverage (use the topic likelihoods); otherwise an empty list,\n"
+        '  "summary": ONE short sentence — the single most useful takeaway,\n'
+        '  "findings": AT MOST 5 items {"point": a short bold takeaway, "detail": ONE short sentence},\n'
+        '  "focus": AT MOST 4 short study actions (strings),\n'
+        '  "breakdown": for topic/coverage questions, the TOP 6-8 topics as {"label": string, '
+        '"value": number 0-100} (use the likelihoods); otherwise an empty list,\n'
         '  "confidence": one of "High", "Medium", "Low",\n'
-        '  "sources": a list of "[paper, page]" strings you actually used.\n\n'
-        f"TOPIC STATISTICS:\n{stats}\n\nRELEVANT EXAM QUESTIONS:\n{ctx}\n\nSTUDENT QUESTION:\n{query}"
+        '  "sources": AT MOST 3 "[paper, page]" strings you used.\n'
+        "Do not repeat the same topic. Keep every sentence short.\n\n"
+        f"TOP TOPIC STATISTICS:\n{stats}\n\nRELEVANT EXAM QUESTIONS:\n{ctx}\n\nSTUDENT QUESTION:\n{query}"
     )
     try:
         data = rag._gen_json(prompt)
@@ -226,7 +227,7 @@ def predict(namespace=""):
             "hi": round(100 * hi),
             "trend": trend,
         })
-    rows.sort(key=lambda r: (-r["prob"], -r["count"]))
+    rows.sort(key=lambda r: (-r["count"], -r["prob"]))  # most-asked first = most meaningful
     # per-year counts for the line chart (numeric years only)
     years_sorted = sorted(numeric_years)
     series = [

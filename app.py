@@ -61,7 +61,7 @@ def _save_upload(f):
 
 
 # --- Papers (tucked away, expanded until they add some) ---
-with st.expander("📄 Add / manage your papers", expanded=True):
+with st.expander("📄 Add / manage your papers", expanded=False):
     uploaded = st.file_uploader("Upload PDF / Word / text files",
                                 type=["pdf", "docx", "txt", "md"], accept_multiple_files=True)
     if uploaded and st.button("Learn these files"):
@@ -129,39 +129,48 @@ if user_msg:
                 if rep.get("summary"):
                     st.info(rep["summary"])
                     parts.append(rep["summary"])
-                # bar chart breakdown
+                # focused bar chart: top 8 only
                 clean = []
                 for it in (rep.get("breakdown") or []):
                     try:
                         clean.append({"label": str(it.get("label", "")), "value": float(it.get("value", 0))})
                     except Exception:
                         pass
+                clean.sort(key=lambda x: -x["value"])
+                clean = clean[:8]
                 if clean:
                     import pandas as pd
                     import altair as alt
                     bdf = pd.DataFrame(clean)
                     ch = alt.Chart(bdf).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
-                        x=alt.X("value:Q", title="%", scale=alt.Scale(domain=[0, 100])),
+                        x=alt.X("value:Q", title="Likely %", scale=alt.Scale(domain=[0, 100])),
                         y=alt.Y("label:N", sort="-x", title=None), tooltip=["label", "value"],
-                    ).properties(height=max(140, 36 * len(clean)))
+                    ).properties(height=max(140, 34 * len(clean)))
                     st.altair_chart(ch, use_container_width=True)
-                if rep.get("findings"):
-                    st.markdown("**✅ Key points**  *(click to expand)*")
-                    for f in rep["findings"]:
-                        pt = f.get("point", "") if isinstance(f, dict) else str(f)
-                        dt = f.get("detail", "") if isinstance(f, dict) else ""
-                        with st.expander("✅  " + pt):
-                            st.write(dt or "—")
-                        parts.append(f"- {pt}: {dt}")
-                if rep.get("focus"):
-                    st.markdown("**🎯 Focus on:**")
-                    st.markdown("\n".join(f"- {x}" for x in rep["focus"]))
-                    parts += [f"- {x}" for x in rep["focus"]]
+                # short bullet key points (first 4)
+                findings = [f for f in (rep.get("findings") or []) if isinstance(f, dict)]
+                if findings:
+                    st.markdown("**Key points:**")
+                    for f in findings[:4]:
+                        st.markdown(f"- **{f.get('point', '')}** — {f.get('detail', '')}")
+                        parts.append(f"- {f.get('point', '')}: {f.get('detail', '')}")
+                # everything else behind a Read more
+                extra = findings[4:]
+                focus = rep.get("focus") or []
+                if extra or focus:
+                    with st.expander("📖 Read more"):
+                        for f in extra:
+                            st.markdown(f"- **{f.get('point', '')}** — {f.get('detail', '')}")
+                        if focus:
+                            st.markdown("**🎯 Focus on:**")
+                            st.markdown("\n".join(f"- {x}" for x in focus))
+                    parts += [f"- {f.get('point', '')}: {f.get('detail', '')}" for f in extra]
+                    parts += [f"- {x}" for x in focus]
                 foot = []
                 if rep.get("confidence"):
                     foot.append(f"Confidence: {rep['confidence']}")
                 if rep.get("sources"):
-                    foot.append("Sources: " + " · ".join(rep["sources"]))
+                    foot.append("Sources: " + " · ".join(rep["sources"][:3]))
                 if foot:
                     st.caption("  |  ".join(foot))
                 assistant_md = "\n".join(parts) or "(no answer)"
@@ -194,13 +203,14 @@ with st.expander("📈 Full topic dashboard (charts)"):
         else:
             import pandas as pd
             import altair as alt
-            df = pd.DataFrame(rows)
+            df = pd.DataFrame(rows[:15])  # focus: only the top 15 most-asked topics
             top = rows[0]
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Questions", total)
             c2.metric("Topics", len(rows))
             c3.metric("Past exams", top["n_periods"])
             c4.metric("Top pick", f"{top['prob']}%", top["topic"])
+            st.caption("Showing the **top 15 most-asked topics** (out of all found).")
             color = alt.Color("trend:N",
                               scale=alt.Scale(domain=["rising", "steady", "falling"],
                                               range=["#2f9e5f", "#9aa0ad", "#d9534f"]),
@@ -211,7 +221,7 @@ with st.expander("📈 Full topic dashboard (charts)"):
                 tooltip=["topic", "prob", "lo", "hi", "trend", "count"])
             band = alt.Chart(df).mark_rule(color="#555", size=2).encode(
                 x="lo:Q", x2="hi:Q", y=alt.Y("topic:N", sort="-x"))
-            st.altair_chart((bars + band).properties(height=max(200, 42 * len(rows))),
+            st.altair_chart((bars + band).properties(height=max(200, 42 * len(df))),
                             use_container_width=True)
             col_l, col_r = st.columns(2)
             with col_l:
@@ -228,8 +238,14 @@ with st.expander("📈 Full topic dashboard (charts)"):
                 else:
                     st.caption("Name files with the year to see year-by-year trends.")
             with col_r:
-                st.markdown("**Share of questions**")
-                dn = alt.Chart(df).mark_arc(innerRadius=55).encode(
+                st.markdown("**Share of questions (top 8)**")
+                top8 = rows[:8]
+                others = sum(r["count"] for r in rows[8:])
+                pie_rows = [{"topic": r["topic"], "count": r["count"]} for r in top8]
+                if others > 0:
+                    pie_rows.append({"topic": "Others", "count": others})
+                pdf = pd.DataFrame(pie_rows)
+                dn = alt.Chart(pdf).mark_arc(innerRadius=55).encode(
                     theta=alt.Theta("count:Q"),
                     color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
                     tooltip=["topic", "count"]).properties(height=300)
