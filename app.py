@@ -73,10 +73,60 @@ if uploaded and st.button("Learn these files"):
 
 # --- 2. Ask ---
 st.header("2. Ask a question")
-q = st.text_input("e.g. 'Which thermodynamics questions come up most?'")
+q = st.text_input("e.g. 'Which topics cover more than 80%? Explain what to focus on.'")
 if st.button("Ask") and q:
-    with st.spinner("Searching, re-ranking, and writing the answer..."):
-        st.markdown(pipeline.ask(q, namespace=namespace))
+    with st.spinner("Analysing your papers and writing a report..."):
+        rep = pipeline.answer_structured(q, namespace=namespace)
+
+    # Executive summary
+    if rep.get("summary"):
+        st.markdown("#### 📌 Summary")
+        st.info(rep["summary"])
+
+    # Visual breakdown (bar chart) — for topic/coverage questions
+    bd = rep.get("breakdown") or []
+    clean = []
+    for item in bd:
+        try:
+            clean.append({"label": str(item.get("label", "")), "value": float(item.get("value", 0))})
+        except Exception:
+            pass
+    if clean:
+        import pandas as pd
+        import altair as alt
+        st.markdown("#### 📊 Breakdown")
+        bdf = pd.DataFrame(clean)
+        chart = alt.Chart(bdf).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
+            x=alt.X("value:Q", title="%", scale=alt.Scale(domain=[0, 100])),
+            y=alt.Y("label:N", sort="-x", title=None),
+            tooltip=["label", "value"],
+        ).properties(height=max(160, 38 * len(clean)))
+        st.altair_chart(chart, use_container_width=True)
+
+    # Key findings — each is a clickable expander with more detail
+    findings = rep.get("findings") or []
+    if findings:
+        st.markdown("#### ✅ Key points  *(click to expand)*")
+        for f in findings:
+            point = f.get("point", "") if isinstance(f, dict) else str(f)
+            detail = f.get("detail", "") if isinstance(f, dict) else ""
+            with st.expander("✅  " + point):
+                st.write(detail or "—")
+
+    # What to focus on
+    focus = rep.get("focus") or []
+    if focus:
+        st.markdown("#### 🎯 What to focus on")
+        st.markdown("\n".join(f"- {x}" for x in focus))
+
+    # Confidence + sources
+    foot = []
+    if rep.get("confidence"):
+        foot.append(f"**Confidence:** {rep['confidence']}")
+    if rep.get("sources"):
+        foot.append("**Sources:** " + " · ".join(rep["sources"]))
+    if foot:
+        st.caption("  |  ".join(foot))
 
 # --- 3. Predict ---
 st.header("3. Predicted important topics")

@@ -93,6 +93,52 @@ def ask(query, namespace=""):
     return rag.answer(query, context)
 
 
+# --- STRUCTURED ANSWER: a professional, visual report (summary + findings + chart) ---
+def answer_structured(query, namespace=""):
+    index = rag.get_index()
+    # 1) topic statistics (so topic/coverage questions get real numbers)
+    total, rows, _ = predict(namespace)
+    stats = "\n".join(
+        f"- {r['topic']}: {r['prob']}% likely, asked {r['count']} times, trend {r['trend']}"
+        for r in rows[:12]
+    ) or "(no topics yet)"
+    # 2) relevant questions from the papers
+    qvec = rag.embed(query, is_query=True)
+    res = index.query(vector=qvec, top_k=8, include_metadata=True, namespace=namespace)
+    matches = res.get("matches", [])[:6]
+    ctx = "\n\n".join(
+        f"[{m['metadata']['source']}, page {m['metadata']['page']}] {m['metadata']['text']}"
+        for m in matches
+    ) or "(no papers uploaded yet)"
+
+    prompt = (
+        "You are a professional exam-analysis assistant. Answer the student's question as a concise, "
+        "well-structured report using ONLY the data below. Keep everything short, simple and specific.\n"
+        "Return JSON with exactly these keys:\n"
+        '  "summary": a 1-2 sentence direct answer,\n'
+        '  "findings": a list of {"point": short bold takeaway, "detail": 1-2 sentence explanation},\n'
+        '  "focus": a list of short study actions (strings),\n'
+        '  "breakdown": a list of {"label": string, "value": number 0-100} — ONLY when the question is '
+        "about topic importance/coverage (use the topic likelihoods); otherwise an empty list,\n"
+        '  "confidence": one of "High", "Medium", "Low",\n'
+        '  "sources": a list of "[paper, page]" strings you actually used.\n\n'
+        f"TOPIC STATISTICS:\n{stats}\n\nRELEVANT EXAM QUESTIONS:\n{ctx}\n\nSTUDENT QUESTION:\n{query}"
+    )
+    try:
+        data = rag._gen_json(prompt)
+    except Exception:
+        data = {"summary": rag.answer(query, [
+            {"text": m["metadata"]["text"], "source": m["metadata"]["source"], "page": m["metadata"]["page"]}
+            for m in matches]), "findings": [], "focus": [], "breakdown": [], "confidence": "", "sources": []}
+    # make sure every key exists and types are safe
+    data.setdefault("summary", "")
+    for k in ("findings", "focus", "breakdown", "sources"):
+        if not isinstance(data.get(k), list):
+            data[k] = []
+    data.setdefault("confidence", "")
+    return data
+
+
 # --- PREDICTION: real probability + trend, not just counting ---
 DECAY = 0.8  # recency weight: the newest year counts 1.0, each older year x0.8 (exponential smoothing)
 
@@ -320,10 +366,11 @@ def chat(history, namespace=""):
         for h in history[-6:]  # remember the last few turns
     )
     prompt = (
-        "You are a friendly exam tutor helping a student with their own past papers. "
+        "You are a friendly, professional exam tutor helping a student with their own past papers. "
         "Prefer the exam-paper context below and cite it like [source, page] when you use it. "
-        "If the answer is not in the papers, say so briefly, then you may give general study help. "
-        "Keep replies clear and encouraging.\n\n"
+        "If the answer is not in the papers, say so briefly, then give general study help.\n"
+        "FORMAT every reply cleanly: start with a one-line direct answer, then short **bold**-headed "
+        "bullet points. Keep it concise and easy to scan — no long paragraphs.\n\n"
         f"EXAM-PAPER CONTEXT:\n{context}\n\n"
         f"CONVERSATION SO FAR:\n{convo}\n\nReply as Tutor:"
     )
