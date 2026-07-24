@@ -1,0 +1,9 @@
+# Never upload secrets or data to GitHub
+.env
+data/*.pdf
+data/*.docx
+data/*.txt
+data/manifest.jsonl
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
