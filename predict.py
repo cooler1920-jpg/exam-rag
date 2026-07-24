@@ -12,10 +12,12 @@ def main():
         return
     print(f"\nAnalysed {total} questions.  (Probability = Laplace's Rule of Succession,")
     print("recent years weighted more; trend = regression slope.)\n")
-    print(f"{'TOPIC':<34}{'LIKELY NEXT':>12}{'YRS SEEN':>10}{'TREND':>10}")
-    print("-" * 66)
+    print(f"{'TOPIC':<32}{'LIKELY':>9}{'RANGE':>13}{'YRS':>7}{'TREND':>10}")
+    print("-" * 71)
     for r in rows:
-        print(f"{r['topic'][:32]:<34}{str(r['prob'])+'%':>12}{str(r['years'])+'/'+str(r['n_periods']):>10}{r['trend']:>10}")
+        rng = f"{r['lo']}-{r['hi']}%"
+        print(f"{r['topic'][:30]:<32}{str(r['prob'])+'%':>9}{rng:>13}"
+              f"{str(r['years'])+'/'+str(r['n_periods']):>7}{r['trend']:>10}")
 
     print("\n--- Study briefing (AI, from the numbers) ---")
     print(pipeline.predict_narrative(rows))

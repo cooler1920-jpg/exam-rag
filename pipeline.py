@@ -2,6 +2,7 @@
 Every function takes a `namespace` = one user's private space in Pinecone,
 so different people's papers never mix. Empty namespace = the default (local) space.
 """
+import math
 import os
 import re
 import uuid
@@ -149,9 +150,16 @@ def predict(namespace=""):
         appeared = [p for p in periods if pc.get(p, 0) > 0]
         s = len(appeared)                                  # exams this topic appeared in
         w_appeared = sum(w(p) for p in appeared)
-        # Laplace's Rule of Succession (proven): P(next) = (s + 1) / (n + 2),
-        # here using recency-weighted evidence.
-        prob = (w_appeared + 1) / (w_total + 2)
+        # Bayesian Beta-Binomial model. The Beta(a, b) posterior mean IS Laplace's
+        # Rule of Succession: P(next) = (s + 1) / (n + 2), using recency-weighted evidence.
+        a = w_appeared + 1
+        b = (w_total - w_appeared) + 1
+        prob = a / (a + b)
+        # 95% credible interval (confidence band) from the Beta posterior (normal approx).
+        var = (a * b) / ((a + b) ** 2 * (a + b + 1))
+        sd = math.sqrt(var)
+        lo = max(0.0, prob - 1.96 * sd)
+        hi = min(1.0, prob + 1.96 * sd)
         # Trend = regression slope of this topic's yearly counts.
         if len(numeric_years) >= 2:
             xs = sorted(numeric_years)
@@ -166,6 +174,8 @@ def predict(namespace=""):
             "years": s,
             "n_periods": n,
             "prob": round(100 * prob),
+            "lo": round(100 * lo),
+            "hi": round(100 * hi),
             "trend": trend,
         })
     rows.sort(key=lambda r: (-r["prob"], -r["count"]))
@@ -186,5 +196,34 @@ def predict_narrative(rows, top=6):
         "exam papers, write a short (4-6 sentence) study-priority briefing: which topics to "
         "revise first and why, referring to the probability and trend. Do not invent any topic "
         "that is not listed.\n\n" + "\n".join(lines)
+    )
+    return rag._gen_text(prompt)
+
+
+# --- CHAT: a conversation that remembers, grounded in the student's papers ---
+def chat(history, namespace=""):
+    """history: list of {"role": "user"|"assistant", "content": str}. Last item is the new question."""
+    index = rag.get_index()
+    question = history[-1]["content"]
+    qvec = rag.embed(question, is_query=True)
+    res = index.query(vector=qvec, top_k=config.KEEP_AFTER_RERANK + 3,
+                      include_metadata=True, namespace=namespace)
+    matches = res.get("matches", [])[:config.KEEP_AFTER_RERANK]
+    context = "\n\n".join(
+        f"[{m['metadata']['source']}, page {m['metadata']['page']}] {m['metadata']['text']}"
+        for m in matches
+    ) or "(no papers uploaded in this space yet)"
+
+    convo = "\n".join(
+        f"{'Student' if h['role'] == 'user' else 'Tutor'}: {h['content']}"
+        for h in history[-6:]  # remember the last few turns
+    )
+    prompt = (
+        "You are a friendly exam tutor helping a student with their own past papers. "
+        "Prefer the exam-paper context below and cite it like [source, page] when you use it. "
+        "If the answer is not in the papers, say so briefly, then you may give general study help. "
+        "Keep replies clear and encouraging.\n\n"
+        f"EXAM-PAPER CONTEXT:\n{context}\n\n"
+        f"CONVERSATION SO FAR:\n{convo}\n\nReply as Tutor:"
     )
     return rag._gen_text(prompt)

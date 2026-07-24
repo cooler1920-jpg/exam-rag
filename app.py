@@ -79,11 +79,35 @@ if st.button("Predict topics"):
         st.caption(f"Analysed {total} questions.")
         st.dataframe(
             [{"Topic": r["topic"], "Likely next exam": f"{r['prob']}%",
+              "Confidence range": f"{r['lo']}–{r['hi']}%",
               "Times asked": r["count"], "Years seen": f"{r['years']}/{r['n_periods']}",
               "Trend": r["trend"]}
              for r in rows],
             use_container_width=True, hide_index=True,
         )
+        st.caption("Confidence range = 95% Bayesian credible interval (Beta-Binomial posterior). "
+                   "A wide range means few papers — add more for a sharper prediction.")
         with st.spinner("Writing your study briefing..."):
             st.markdown("### 🎯 Study briefing")
             st.markdown(pipeline.predict_narrative(rows))
+
+# --- 4. Chat with your papers (remembers the conversation) ---
+st.header("4. Chat with your papers")
+st.caption("Have a back-and-forth conversation. Answers stay grounded in your uploaded papers.")
+chat_key = f"chat_{namespace}"
+st.session_state.setdefault(chat_key, [])
+
+for msg in st.session_state[chat_key]:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+user_msg = st.chat_input("Ask anything about your papers…")
+if user_msg:
+    st.session_state[chat_key].append({"role": "user", "content": user_msg})
+    with st.chat_message("user"):
+        st.markdown(user_msg)
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking…"):
+            reply = pipeline.chat(st.session_state[chat_key], namespace=namespace)
+        st.markdown(reply)
+    st.session_state[chat_key].append({"role": "assistant", "content": reply})
