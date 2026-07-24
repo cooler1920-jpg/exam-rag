@@ -41,11 +41,26 @@ with st.expander("ℹ️ How to use this app"):
         "Tip: name files with the year (e.g. `physics_2019.pdf`) for the best trends."
     )
 with st.expander("🔧 Manage this space"):
-    st.caption("This permanently deletes all papers and history in the current space.")
+    st.caption("This permanently deletes all papers, chat and history in the current space.")
     if st.button("Reset this space"):
         pipeline.reset_space(namespace)
         st.session_state.pop(f"chat_{namespace}", None)
+        st.session_state.pop(f"init_{namespace}", None)
         st.success("Space cleared. Upload papers to start again.")
+
+st.caption("🕒 Your papers, chats and history are kept for 15 days, then automatically deleted.")
+
+# One-time per session for this space: auto-delete data older than 15 days, restore saved chat.
+if not st.session_state.get(f"init_{namespace}"):
+    try:
+        pipeline.purge_old(namespace)
+    except Exception:
+        pass
+    try:
+        st.session_state[f"chat_{namespace}"] = pipeline.load_chat(namespace)
+    except Exception:
+        st.session_state[f"chat_{namespace}"] = []
+    st.session_state[f"init_{namespace}"] = True
 
 # --- 1. Add papers ---
 st.header("1. Add your past papers")
@@ -314,3 +329,8 @@ if user_msg:
         if rep.get("sources"):
             st.caption("Sources: " + " · ".join(rep["sources"]))
     st.session_state[chat_key].append({"role": "assistant", "content": md})
+    try:  # persist so the conversation survives a refresh
+        pipeline.save_chat_message(namespace, "user", user_msg)
+        pipeline.save_chat_message(namespace, "assistant", md)
+    except Exception:
+        pass

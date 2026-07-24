@@ -60,6 +60,7 @@ def ingest_path(path, namespace=""):
                 "year": year,
                 "topic": (q.get("topic", "").strip() or "unknown"),
                 "marks": q.get("marks", ""),
+                "created_at": int(time.time()),
             }
             vectors.append((vid, rag.embed(qtext), meta))
         if vectors:
@@ -323,7 +324,7 @@ def save_backtest(namespace, result, paper=""):
     meta = {
         "accuracy": result["match_pct"], "precision": result["precision_pct"],
         "actual": result["actual_count"], "paper": paper[:120],
-        "date": time.strftime("%Y-%m-%d %H:%M"),
+        "date": time.strftime("%Y-%m-%d %H:%M"), "created_at": int(time.time()),
     }
     index.upsert(vectors=[(vid, [0.1] * config.EMBED_DIM, meta)], namespace=_hist_ns(namespace))
 
@@ -337,12 +338,55 @@ def get_history(namespace):
     return items
 
 
+def _chat_ns(namespace):
+    return (namespace or "default") + "__chat"
+
+
 def reset_space(namespace):
-    """Delete everything in a space (its questions and its accuracy history)."""
+    """Delete everything in a space (papers, accuracy history, and chat)."""
     index = rag.get_index()
-    for ns in (namespace, _hist_ns(namespace)):
+    for ns in (namespace, _hist_ns(namespace), _chat_ns(namespace)):
         try:
             index.delete(delete_all=True, namespace=ns)
+        except Exception:
+            pass
+
+
+# --- RETENTION: keep data for 15 days, then auto-delete ---
+RETENTION_DAYS = 15
+
+
+def save_chat_message(namespace, role, content):
+    """Persist one chat message so the conversation survives a page refresh."""
+    index = rag.get_index()
+    ts = time.time()
+    meta = {"role": role, "content": content[:4000], "created_at": int(ts), "order": ts}
+    index.upsert(vectors=[("msg-" + str(int(ts * 1000)), [0.1] * config.EMBED_DIM, meta)],
+                 namespace=_chat_ns(namespace))
+
+
+def load_chat(namespace):
+    index = rag.get_index()
+    res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=200,
+                      include_metadata=True, namespace=_chat_ns(namespace))
+    items = [m["metadata"] for m in res.get("matches", [])]
+    items.sort(key=lambda x: x.get("order", 0))
+    return [{"role": m.get("role", "assistant"), "content": m.get("content", "")} for m in items]
+
+
+def purge_old(namespace, days=RETENTION_DAYS):
+    """Delete anything in this space older than `days` (across papers, history, chat)."""
+    index = rag.get_index()
+    cutoff = int(time.time()) - days * 86400
+    for ns in (namespace, _hist_ns(namespace), _chat_ns(namespace)):
+        try:
+            res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=1000,
+                              include_metadata=True, namespace=ns)
+            old = [m["id"] for m in res.get("matches", [])
+                   if isinstance(m["metadata"].get("created_at"), (int, float))
+                   and m["metadata"]["created_at"] < cutoff]
+            if old:
+                index.delete(ids=old, namespace=ns)
         except Exception:
             pass
 
