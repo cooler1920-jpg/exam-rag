@@ -150,8 +150,53 @@ if st.button("Predict topics"):
             st.markdown("### 🎯 Study briefing")
             st.markdown(pipeline.predict_narrative(rows))
 
-# --- 4. Chat with your papers (remembers the conversation) ---
-st.header("4. Chat with your papers")
+# --- 4. Backtest: how accurate was the prediction vs the real paper ---
+st.header("4. Check accuracy — compare with the real paper")
+st.caption("Upload the ACTUAL recent exam paper. We check how many of its topics our prediction "
+           "got right — a real accuracy score (backtest).")
+actual_file = st.file_uploader("Upload the real / recent exam paper",
+                               type=["pdf", "docx", "txt", "md"], key="actual")
+if actual_file and st.button("Compare with my prediction"):
+    suffix = "." + actual_file.name.rsplit(".", 1)[-1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(actual_file.getbuffer())
+        tmp_path = tmp.name
+    nice_path = os.path.join(os.path.dirname(tmp_path), actual_file.name)
+    os.replace(tmp_path, nice_path)
+    with st.spinner("Reading the real paper and comparing to your prediction..."):
+        actual_topics = pipeline.extract_topics(nice_path)
+        result = pipeline.compare(namespace, actual_topics)
+    os.remove(nice_path)
+
+    if result is None:
+        st.info("Add past papers first (section 1), so there's a prediction to compare against.")
+    elif result["actual_count"] == 0:
+        st.info("Couldn't read any topics from that paper — try another file.")
+    else:
+        a, b, c = st.columns(3)
+        a.metric("Prediction accuracy", f"{result['match_pct']}%",
+                 help="Of the topics that actually appeared, how many we flagged as likely (recall).")
+        b.metric("Precision", f"{result['precision_pct']}%",
+                 help="Of the topics we flagged as likely, how many actually appeared.")
+        c.metric("Topics in real paper", result["actual_count"])
+
+        st.markdown("#### Topic by topic")
+        st.dataframe(
+            [{"Topic in the real paper": r["actual"],
+              "We had predicted": (f"{r['prob']}%" if r["matched_to"] else "— not in past papers"),
+              "Result": "✅ matched" if r["hit"] else "⚠️ we missed this"}
+             for r in result["results"]],
+            use_container_width=True, hide_index=True,
+        )
+        if result["false_alarms"]:
+            st.markdown("**We flagged these as likely, but they did NOT appear:** "
+                        + ", ".join(f"{f['topic']} ({f['prob']}%)" for f in result["false_alarms"]))
+        st.success(f"✅ Our prediction correctly covered **{result['match_pct']}%** of the topics "
+                   f"that actually came in the exam.")
+        st.caption("Add more past papers to push this accuracy higher — that's how the app proves itself.")
+
+# --- 5. Chat with your papers (remembers the conversation) ---
+st.header("5. Chat with your papers")
 st.caption("Have a back-and-forth conversation. Answers stay grounded in your uploaded papers.")
 chat_key = f"chat_{namespace}"
 st.session_state.setdefault(chat_key, [])

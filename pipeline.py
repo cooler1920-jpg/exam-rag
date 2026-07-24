@@ -206,6 +206,65 @@ def predict_narrative(rows, top=6):
     return rag._gen_text(prompt)
 
 
+# --- BACKTEST: read a real paper and check how well the prediction matched ---
+def _cos(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def extract_topics(path):
+    """Read a paper and return its list of topics WITHOUT storing it (keeps the test fair)."""
+    topics = []
+    for page_no, png, text in pages_from_file(path):
+        qs = rag.transcribe_page(png) if png else rag.transcribe_text(text)
+        for q in qs:
+            t = (q.get("topic", "") or "").strip()
+            if t:
+                topics.append(t)
+    return topics
+
+
+def compare(namespace, actual_topics, likely_threshold=50, match_threshold=0.80):
+    """Compare the real paper's topics against our prediction for this space."""
+    total, rows, _ = predict(namespace)
+    if total == 0 or not actual_topics:
+        return None
+
+    pred = {r["topic"]: r["prob"] for r in rows}
+    pred_topics = list(pred.keys())
+    pred_vecs = [rag.embed(t) for t in pred_topics]
+
+    counts = Counter(actual_topics)
+    results = []
+    for at in counts:
+        av = rag.embed(at)
+        best, best_sim = None, -1.0
+        for pt, pv in zip(pred_topics, pred_vecs):
+            sim = _cos(av, pv)
+            if sim > best_sim:
+                best, best_sim = pt, sim
+        matched_to = best if best_sim >= match_threshold else None
+        prob = pred[matched_to] if matched_to else 0
+        results.append({"actual": at, "count": counts[at], "matched_to": matched_to,
+                        "prob": prob, "hit": prob >= likely_threshold})
+
+    a_total = len(results)
+    hits = [r for r in results if r["hit"]]
+    surprises = [r for r in results if not r["hit"]]
+    recall = round(100 * len(hits) / a_total) if a_total else 0
+
+    likely_pred = [t for t in pred_topics if pred[t] >= likely_threshold]
+    matched_pred = {r["matched_to"] for r in hits if r["matched_to"]}
+    precision = round(100 * len(matched_pred) / len(likely_pred)) if likely_pred else 0
+    false_alarms = [{"topic": t, "prob": pred[t]} for t in likely_pred if t not in matched_pred]
+
+    results.sort(key=lambda r: -r["prob"])
+    return {"match_pct": recall, "precision_pct": precision, "actual_count": a_total,
+            "results": results, "hits": hits, "surprises": surprises, "false_alarms": false_alarms}
+
+
 # --- CHAT: a conversation that remembers, grounded in the student's papers ---
 def chat(history, namespace=""):
     """history: list of {"role": "user"|"assistant", "content": str}. Last item is the new question."""
