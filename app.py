@@ -77,6 +77,28 @@ if st.button("Predict topics"):
         st.info("No papers in this space yet — add some above first.")
     else:
         st.caption(f"Analysed {total} questions.")
+
+        # --- Visual: horizontal bar chart, colored by trend, with confidence range ---
+        import pandas as pd
+        import altair as alt
+        df = pd.DataFrame(rows)
+        color = alt.Color("trend:N",
+                          scale=alt.Scale(domain=["rising", "steady", "falling"],
+                                          range=["#2f9e5f", "#9aa0ad", "#d9534f"]),
+                          legend=alt.Legend(title="Trend"))
+        bars = alt.Chart(df).mark_bar(cornerRadiusEnd=3).encode(
+            x=alt.X("prob:Q", title="Likely to appear next exam (%)", scale=alt.Scale(domain=[0, 100])),
+            y=alt.Y("topic:N", sort="-x", title=None),
+            color=color,
+            tooltip=["topic", "prob", "lo", "hi", "trend", "count"],
+        )
+        band = alt.Chart(df).mark_rule(color="#555", size=2).encode(
+            x="lo:Q", x2="hi:Q", y=alt.Y("topic:N", sort="-x"),
+        )
+        st.altair_chart((bars + band).properties(height=max(200, 42 * len(rows))),
+                        use_container_width=True)
+        st.caption("Bars = probability · thin line = 95% confidence range · green rising / red falling.")
+
         st.dataframe(
             [{"Topic": r["topic"], "Likely next exam": f"{r['prob']}%",
               "Confidence range": f"{r['lo']}–{r['hi']}%",
