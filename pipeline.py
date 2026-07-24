@@ -5,7 +5,7 @@ so different people's papers never mix. Empty namespace = the default (local) sp
 import os
 import re
 import uuid
-from collections import Counter
+from collections import Counter, defaultdict
 
 import fitz  # PyMuPDF
 import docx  # python-docx
@@ -91,27 +91,100 @@ def ask(query, namespace=""):
     return rag.answer(query, context)
 
 
-# --- PREDICTION: count topic frequency from the user's namespace (works when deployed) ---
+# --- PREDICTION: real probability + trend, not just counting ---
+DECAY = 0.8  # recency weight: the newest year counts 1.0, each older year x0.8 (exponential smoothing)
+
+
+def _slope(xs, ys):
+    """Least-squares regression slope of ys over xs (the trend direction)."""
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    sx, sy = sum(xs), sum(ys)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    sxx = sum(x * x for x in xs)
+    denom = n * sxx - sx * sx
+    return (n * sxy - sx * sy) / denom if denom else 0.0
+
+
 def predict(namespace=""):
     index = rag.get_index()
     probe = [0.1] * config.EMBED_DIM  # a fixed vector just to pull back all stored questions
     res = index.query(vector=probe, top_k=1000, include_metadata=True, namespace=namespace)
-    counts = Counter()
-    years = {}
-    total = 0
-    for m in res.get("matches", []):
+    matches = res.get("matches", [])
+    total = len(matches)
+    if total == 0:
+        return 0, []
+
+    # A "period" = an exam year (or, if the year is unknown, the paper itself).
+    def period_of(md):
+        y = str(md.get("year", "unknown"))
+        return y if y != "unknown" else "paper:" + str(md.get("source", "?"))
+
+    topic_pcount = defaultdict(lambda: defaultdict(int))  # topic -> period -> count
+    topic_total = Counter()
+    periods = set()
+    numeric_years = set()
+    for m in matches:
         md = m["metadata"]
         topic = md.get("topic", "unknown")
-        counts[topic] += 1
-        years.setdefault(topic, set()).add(md.get("year", "unknown"))
-        total += 1
+        p = period_of(md)
+        topic_pcount[topic][p] += 1
+        topic_total[topic] += 1
+        periods.add(p)
+        if p.isdigit():
+            numeric_years.add(int(p))
+
+    periods = sorted(periods)
+    n = len(periods)                     # total number of past exams (n in the formula)
+    current = max(numeric_years) if numeric_years else None
+
+    def w(p):  # recency weight of a period
+        return DECAY ** (current - int(p)) if (current is not None and p.isdigit()) else 1.0
+
+    w_total = sum(w(p) for p in periods)
+
     rows = []
-    for topic, count in counts.most_common():
-        yrs = len([y for y in years[topic] if y != "unknown"])
+    for topic, pc in topic_pcount.items():
+        appeared = [p for p in periods if pc.get(p, 0) > 0]
+        s = len(appeared)                                  # exams this topic appeared in
+        w_appeared = sum(w(p) for p in appeared)
+        # Laplace's Rule of Succession (proven): P(next) = (s + 1) / (n + 2),
+        # here using recency-weighted evidence.
+        prob = (w_appeared + 1) / (w_total + 2)
+        # Trend = regression slope of this topic's yearly counts.
+        if len(numeric_years) >= 2:
+            xs = sorted(numeric_years)
+            ys = [pc.get(str(x), 0) for x in xs]
+            sl = _slope(xs, ys)
+        else:
+            sl = 0.0
+        trend = "rising" if sl > 0.15 else ("falling" if sl < -0.15 else "steady")
         rows.append({
             "topic": topic,
-            "count": count,
-            "pct": round(100 * count / total) if total else 0,
-            "years": yrs,
+            "count": topic_total[topic],
+            "years": s,
+            "n_periods": n,
+            "prob": round(100 * prob),
+            "trend": trend,
         })
+    rows.sort(key=lambda r: (-r["prob"], -r["count"]))
     return total, rows
+
+
+def predict_narrative(rows, top=6):
+    """Have the LLM turn the computed numbers into a short study briefing."""
+    if not rows:
+        return ""
+    lines = [
+        f"{r['topic']}: {r['prob']}% likely next exam "
+        f"(appeared in {r['years']} of {r['n_periods']} papers, trend {r['trend']})"
+        for r in rows[:top]
+    ]
+    prompt = (
+        "You are a study coach. Based ONLY on these computed statistics from a student's past "
+        "exam papers, write a short (4-6 sentence) study-priority briefing: which topics to "
+        "revise first and why, referring to the probability and trend. Do not invent any topic "
+        "that is not listed.\n\n" + "\n".join(lines)
+    )
+    return rag._gen_text(prompt)

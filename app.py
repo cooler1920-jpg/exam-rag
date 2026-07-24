@@ -65,15 +65,25 @@ if st.button("Ask") and q:
 
 # --- 3. Predict ---
 st.header("3. Predicted important topics")
-if st.button("Show topic ranking"):
-    with st.spinner("Counting topics..."):
+st.caption(
+    "Probability uses Laplace's Rule of Succession  P(next) = (s + 1) / (n + 2)  "
+    "— s = exams a topic appeared in, n = total exams — with recent years weighted more "
+    "(exponential smoothing). Trend comes from a regression slope."
+)
+if st.button("Predict topics"):
+    with st.spinner("Computing probabilities and trend..."):
         total, rows = pipeline.predict(namespace=namespace)
     if total == 0:
         st.info("No papers in this space yet — add some above first.")
     else:
         st.caption(f"Analysed {total} questions.")
         st.dataframe(
-            [{"Topic": r["topic"], "Times asked": r["count"], "% of paper": f"{r['pct']}%", "Years seen": r["years"]}
+            [{"Topic": r["topic"], "Likely next exam": f"{r['prob']}%",
+              "Times asked": r["count"], "Years seen": f"{r['years']}/{r['n_periods']}",
+              "Trend": r["trend"]}
              for r in rows],
             use_container_width=True, hide_index=True,
         )
+        with st.spinner("Writing your study briefing..."):
+            st.markdown("### 🎯 Study briefing")
+            st.markdown(pipeline.predict_narrative(rows))
