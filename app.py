@@ -71,17 +71,25 @@ st.caption(
     "(exponential smoothing). Trend comes from a regression slope."
 )
 if st.button("Predict topics"):
-    with st.spinner("Computing probabilities and trend..."):
-        total, rows = pipeline.predict(namespace=namespace)
+    with st.spinner("Computing probabilities, trend and confidence..."):
+        total, rows, series = pipeline.predict(namespace=namespace)
     if total == 0:
         st.info("No papers in this space yet — add some above first.")
     else:
-        st.caption(f"Analysed {total} questions.")
-
-        # --- Visual: horizontal bar chart, colored by trend, with confidence range ---
         import pandas as pd
         import altair as alt
         df = pd.DataFrame(rows)
+        top = rows[0]
+
+        # --- Dashboard tiles ---
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Questions", total)
+        c2.metric("Topics", len(rows))
+        c3.metric("Past exams", top["n_periods"])
+        c4.metric("Top pick", f"{top['prob']}%", top["topic"])
+
+        # --- Bar chart: probability per topic, colored by trend, with confidence range ---
+        st.markdown("#### How likely is each topic?")
         color = alt.Color("trend:N",
                           scale=alt.Scale(domain=["rising", "steady", "falling"],
                                           range=["#2f9e5f", "#9aa0ad", "#d9534f"]),
@@ -89,26 +97,55 @@ if st.button("Predict topics"):
         bars = alt.Chart(df).mark_bar(cornerRadiusEnd=3).encode(
             x=alt.X("prob:Q", title="Likely to appear next exam (%)", scale=alt.Scale(domain=[0, 100])),
             y=alt.Y("topic:N", sort="-x", title=None),
-            color=color,
-            tooltip=["topic", "prob", "lo", "hi", "trend", "count"],
+            color=color, tooltip=["topic", "prob", "lo", "hi", "trend", "count"],
         )
         band = alt.Chart(df).mark_rule(color="#555", size=2).encode(
             x="lo:Q", x2="hi:Q", y=alt.Y("topic:N", sort="-x"),
         )
         st.altair_chart((bars + band).properties(height=max(200, 42 * len(rows))),
                         use_container_width=True)
-        st.caption("Bars = probability · thin line = 95% confidence range · green rising / red falling.")
+        st.caption("Bar = probability · thin line = 95% confidence range · green rising / red falling.")
 
-        st.dataframe(
-            [{"Topic": r["topic"], "Likely next exam": f"{r['prob']}%",
-              "Confidence range": f"{r['lo']}–{r['hi']}%",
-              "Times asked": r["count"], "Years seen": f"{r['years']}/{r['n_periods']}",
-              "Trend": r["trend"]}
-             for r in rows],
-            use_container_width=True, hide_index=True,
-        )
-        st.caption("Confidence range = 95% Bayesian credible interval (Beta-Binomial posterior). "
-                   "A wide range means few papers — add more for a sharper prediction.")
+        col_l, col_r = st.columns(2)
+        # --- Line graph: each topic over the years (the real trend) ---
+        with col_l:
+            st.markdown("#### Trend over the years")
+            if series:
+                top_topics = [r["topic"] for r in rows[:6]]
+                sdf = pd.DataFrame(series)
+                sdf = sdf[sdf["topic"].isin(top_topics)]
+                line = alt.Chart(sdf).mark_line(point=True).encode(
+                    x=alt.X("year:O", title="Year"),
+                    y=alt.Y("count:Q", title="Questions"),
+                    color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
+                    tooltip=["topic", "year", "count"],
+                ).properties(height=300)
+                st.altair_chart(line, use_container_width=True)
+            else:
+                st.caption("Name files with the year (e.g. physics_2019.pdf) to see year-by-year trends.")
+        # --- Donut: share of questions by topic ---
+        with col_r:
+            st.markdown("#### Share of questions")
+            donut = alt.Chart(df).mark_arc(innerRadius=55).encode(
+                theta=alt.Theta("count:Q"),
+                color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
+                tooltip=["topic", "count"],
+            ).properties(height=300)
+            st.altair_chart(donut, use_container_width=True)
+
+        # --- Full numbers (tucked away) ---
+        with st.expander("See the full numbers"):
+            st.dataframe(
+                [{"Topic": r["topic"], "Likely next exam": f"{r['prob']}%",
+                  "Confidence range": f"{r['lo']}–{r['hi']}%",
+                  "Times asked": r["count"], "Years seen": f"{r['years']}/{r['n_periods']}",
+                  "Trend": r["trend"]}
+                 for r in rows],
+                use_container_width=True, hide_index=True,
+            )
+            st.caption("Confidence range = 95% Bayesian credible interval (Beta-Binomial). "
+                       "Wide range = few papers; add more for a sharper prediction.")
+
         with st.spinner("Writing your study briefing..."):
             st.markdown("### 🎯 Study briefing")
             st.markdown(pipeline.predict_narrative(rows))

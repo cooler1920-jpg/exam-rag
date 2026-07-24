@@ -179,7 +179,13 @@ def predict(namespace=""):
             "trend": trend,
         })
     rows.sort(key=lambda r: (-r["prob"], -r["count"]))
-    return total, rows
+    # per-year counts for the line chart (numeric years only)
+    years_sorted = sorted(numeric_years)
+    series = [
+        {"topic": topic, "year": y, "count": topic_pcount[topic].get(str(y), 0)}
+        for topic in topic_pcount for y in years_sorted
+    ]
+    return total, rows, series
 
 
 def predict_narrative(rows, top=6):

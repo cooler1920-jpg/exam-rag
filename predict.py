@@ -6,7 +6,7 @@ import pipeline
 
 
 def main():
-    total, rows = pipeline.predict()  # default namespace
+    total, rows, _ = pipeline.predict()  # default namespace
     if total == 0:
         print("No data yet. Run `python ingest.py` first.")
         return
