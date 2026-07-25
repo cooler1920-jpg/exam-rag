@@ -203,28 +203,46 @@ def _clean_q(text, limit=300):
     return t
 
 
+def _q_norm(t):
+    return re.sub(r"\s+", " ", (t or "").lower()).strip()[:70]
+
+
+def _cite(it):
+    src = []
+    if it.get("q_no"):
+        src.append(f"Q{it['q_no']}")
+    src.append(str(it.get("source", "?")))
+    src.append(f"page {it.get('page', '?')}")
+    if it.get("marks"):
+        src.append(f"{it['marks']} marks")
+    return " · ".join(src)
+
+
 def topic_detail_md(detail):
-    """Year-wise list of the actual questions for one topic (paper, page, q-number) + insight."""
+    """Year-wise list of the actual questions for one topic (paper, page, q-number) + insight.
+    Repeated questions (across years) are highlighted in red 🔥 = high-yield."""
     d = detail
     if not d.get("total"):
         return f"No questions found for **{d.get('topic', '')}** yet."
-    lines = [f"**{d['topic']} — {d['total']} question(s)** across {len(d['by_year'])} paper(s)/year(s)."]
+    # count identical/near-identical question stems across all years → a repeat = high-yield
+    stem_count = {}
+    for yr in d["by_year"]:
+        for it in yr["items"]:
+            k = _q_norm(it["text"])
+            stem_count[k] = stem_count.get(k, 0) + 1
+    lines = [f"**{d['topic']} — {d['total']} question(s)** across {len(d['by_year'])} paper(s)/year(s).",
+             ":red-background[🔥 repeated] = came in more than one year (high-yield) · :blue-background[Q] = asked once."]
     for yr in d["by_year"]:
         lines.append(f"\n**📅 {yr['year']} — {yr['count']} question(s):**")
         for it in yr["items"][:25]:
             q = _clean_q(it["text"])
-            src = []
-            if it.get("q_no"):
-                src.append(f"Q{it['q_no']}")
-            src.append(str(it.get("source", "?")))
-            src.append(f"page {it.get('page', '?')}")
-            if it.get("marks"):
-                src.append(f"{it['marks']} marks")
-            lines.append(f"- {q}  \n  _{' · '.join(src)}_")
+            rep = stem_count.get(_q_norm(it["text"]), 1)
+            badge = f":red-background[🔥 repeated {rep}×]" if rep >= 2 else ":blue-background[Q]"
+            lines.append(f"- {badge}  {q}  \n  _{_cite(it)}_")
     peak = max(d["by_year"], key=lambda y: y["count"])
     lines.append(f"\n💡 **Insight:** **{d['topic']}** appears in **{len(d['by_year'])}** of your papers; "
                  f"the most questions came in **{peak['year']}** ({peak['count']}). "
-                 f"A frequently-repeating, high-yield topic worth prioritising.")
+                 f"Focus on the :red-background[🔥 repeated] ones first — they're most likely to appear again.")
     return "\n".join(lines)
 
 
@@ -233,19 +251,15 @@ def year_detail_md(detail):
     d = detail
     if not d.get("total"):
         return f"No questions found for **{d.get('year', '')}** yet."
-    lines = [f"**📅 {d['year']} — {d['total']} question(s)** across {len(d['by_topic'])} subject(s)."]
+    lines = [f"**📅 {d['year']} — {d['total']} question(s)** across {len(d['by_topic'])} subject(s).",
+             "The bigger a subject's list, the more it was tested that year."]
     for tp in d["by_topic"]:
-        lines.append(f"\n**{tp['topic']} — {tp['count']} question(s):**")
+        # highlight the most-tested subjects of the year in red
+        badge = ":red-background[🔥 heavy]" if tp["count"] >= 4 else ":blue-background[·]"
+        lines.append(f"\n{badge} **{tp['topic']} — {tp['count']} question(s):**")
         for it in tp["items"][:12]:
             q = _clean_q(it["text"])
-            src = []
-            if it.get("q_no"):
-                src.append(f"Q{it['q_no']}")
-            src.append(str(it.get("source", "?")))
-            src.append(f"page {it.get('page', '?')}")
-            if it.get("marks"):
-                src.append(f"{it['marks']} marks")
-            lines.append(f"- {q}  \n  _{' · '.join(src)}_")
+            lines.append(f"- {q}  \n  _{_cite(it)}_")
         if tp["count"] > 12:
             lines.append(f"  …and **{tp['count'] - 12} more** {tp['topic']} question(s).")
     top = d["by_topic"][0]
