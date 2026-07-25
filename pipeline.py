@@ -637,7 +637,22 @@ def chat_reply(history, namespace=""):
         f"{i + 1}. {r['topic']} — asked {r['count']} times, {r['prob']}% likely next exam, trend {r['trend']}"
         for i, r in enumerate(rows[:25])
     ) or "(no topics yet — the student hasn't added papers)"
-    # Relevant exam questions for grounding.
+    count_by = {r["topic"]: r["count"] for r in rows}
+    # Sample real questions per top topic, so the model can INFER what to study FROM the papers.
+    buckets = defaultdict(list)
+    allq = index.query(vector=[0.1] * config.EMBED_DIM, top_k=1000,
+                       include_metadata=True, namespace=namespace)
+    for m in allq.get("matches", []):
+        md = m["metadata"]
+        t = (md.get("topic", "") or "unknown")
+        if len(buckets[t]) < 5:
+            buckets[t].append((md.get("text", "") or "")[:170])
+    samples = "\n\n".join(
+        f"{r['topic']} — {count_by.get(r['topic'], 0)} questions. Examples:\n"
+        + "\n".join(f"- {q}" for q in buckets.get(r["topic"], []))
+        for r in rows[:12] if buckets.get(r["topic"])
+    ) or "(no papers uploaded yet)"
+    # Also pull questions most relevant to THIS question.
     qvec = rag.embed(question, is_query=True)
     res = index.query(vector=qvec, top_k=8, include_metadata=True, namespace=namespace)
     matches = res.get("matches", [])[:6]
@@ -657,10 +672,14 @@ def chat_reply(history, namespace=""):
         "- If they ask for bullets or a numbered list, use exactly that format and nothing else.\n"
         "- Do NOT add extra sections, trends, insights, or commentary they did not ask for.\n"
         "- Rank 'top'/'most important' topics using the stats order below (already sorted).\n"
-        "- Use ONLY the data below. If it's not there, say so briefly.\n"
+        "- IMPORTANT: If they ask what to STUDY/READ/FOCUS/PREPARE for a topic, do NOT say the info is "
+        "unavailable. Instead READ that topic's sample questions below and name the recurring "
+        "sub-topics/themes those questions test (a few words each). Base it ONLY on the questions shown.\n"
+        "- Never invent facts outside the data below. Ground every point in the questions/stats provided.\n"
         "- Plain Markdown only. No preamble like 'Sure' or 'Here is'.\n\n"
         f"TOPIC STATS (ranked, most-asked first):\n{stats}\n\n"
-        f"RELEVANT EXAM QUESTIONS:\n{ctx}\n\n"
+        f"SAMPLE QUESTIONS BY TOPIC (use these to infer what each topic actually tests):\n{samples}\n\n"
+        f"QUESTIONS MOST RELEVANT TO THIS MESSAGE:\n{ctx}\n\n"
         f"CONVERSATION SO FAR:\n{convo}\n\n"
         f"STUDENT'S LAST MESSAGE:\n{question}"
     )
