@@ -440,6 +440,20 @@ def get_user(mobile):
     return None
 
 
+def list_users():
+    """All signups (for the owner's customer list)."""
+    index = rag.get_index()
+    res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=10000,
+                      include_metadata=True, namespace=USERS_NS)
+    users = []
+    for m in res.get("matches", []):
+        md = m["metadata"]
+        users.append({"name": md.get("name", ""), "mobile": md.get("mobile", m["id"]),
+                      "created_at": md.get("created_at", 0)})
+    users.sort(key=lambda u: -u.get("created_at", 0))
+    return users
+
+
 def send_otp_sms(mobile, otp):
     """Send an OTP via Fast2SMS. Returns (success, info)."""
     key = os.getenv("FAST2SMS_API_KEY", "")

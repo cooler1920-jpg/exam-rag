@@ -11,7 +11,7 @@ import time
 import streamlit as st
 
 for _k in ("GEMINI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX", "PINECONE_CLOUD",
-           "PINECONE_REGION", "FAST2SMS_API_KEY"):
+           "PINECONE_REGION", "FAST2SMS_API_KEY", "ADMIN_MOBILE"):
     try:
         if _k in st.secrets:
             os.environ[_k] = str(st.secrets[_k])
@@ -154,7 +154,8 @@ if "user" not in st.session_state:
                 st.rerun()
             else:
                 st.error("Wrong OTP. Please try again.")
-    st.caption("We send a one-time code to your mobile to verify it's you. No password needed.")
+    st.caption("We send a one-time code to verify it's you. By continuing, you agree we store your "
+               "name and mobile to keep your account.")
     st.stop()
 
 user = st.session_state["user"]
@@ -283,6 +284,25 @@ with st.sidebar:
                 st.session_state.pop("dash", None)
                 st.session_state.pop("acc", None)
                 st.success("Space cleared.")
+
+        # Owner-only: customer list (set ADMIN_MOBILE in Secrets to your number)
+        admin_m = re.sub(r"\D", "", os.getenv("ADMIN_MOBILE", ""))
+        if admin_m and user["mobile"] == admin_m:
+            st.divider()
+            st.markdown('<div class="navlabel">👑 Admin</div>', unsafe_allow_html=True)
+            with st.expander("Customers"):
+                import datetime
+                import pandas as pd
+                users = pipeline.list_users()
+                st.caption(f"{len(users)} signups")
+                df = pd.DataFrame([{
+                    "Name": u["name"], "Mobile": u["mobile"],
+                    "Joined": (datetime.datetime.fromtimestamp(u["created_at"]).strftime("%Y-%m-%d")
+                               if u["created_at"] else ""),
+                } for u in users])
+                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.download_button("⬇ Download CSV", df.to_csv(index=False),
+                                   "customers.csv", "text/csv", use_container_width=True)
 
 # =================== MAIN ===================
 cur = st.session_state.get(f"cur_{namespace}", "main")
