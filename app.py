@@ -68,9 +68,9 @@ QUICK = {
 picked = None
 with st.sidebar:
     st.markdown("## 📚 Exam Predictor")
-    raw = st.text_input("Your space name", value="", placeholder="e.g. your name or class code",
-                        help="Keeps your papers private.")
-    namespace = re.sub(r"[^a-z0-9_-]", "", raw.strip().lower())
+    raw = st.text_input("Workspace (optional)", value="", placeholder="default: main",
+                        help="Leave blank for the shared 'main' space, or type a private name.")
+    namespace = re.sub(r"[^a-z0-9_-]", "", raw.strip().lower()) or "main"
 
     if namespace:
         # one-time init for this space this session
@@ -182,16 +182,8 @@ with st.sidebar:
                 st.session_state.pop("dash", None)
                 st.session_state.pop("acc", None)
                 st.success("Space cleared.")
-    else:
-        st.info("Enter a space name to begin.")
 
 # =================== MAIN ===================
-if not namespace:
-    st.title("📚 Exam Question Predictor")
-    st.write("Upload past papers, then just chat — predict likely topics, get study plans, and check accuracy.")
-    st.info("← Enter a **space name** in the sidebar to begin.")
-    st.stop()
-
 cur = st.session_state.get(f"cur_{namespace}", "main")
 chat_key = f"chat_{namespace}"
 st.session_state.setdefault(chat_key, [])
