@@ -169,7 +169,7 @@ def predict(namespace=""):
     matches = res.get("matches", [])
     total = len(matches)
     if total == 0:
-        return 0, []
+        return 0, [], []
 
     # A "period" = an exam year (or, if the year is unknown, the paper itself).
     def period_of(md):
