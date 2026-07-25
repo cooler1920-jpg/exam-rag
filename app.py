@@ -10,7 +10,8 @@ import time
 
 import streamlit as st
 
-for _k in ("GEMINI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX", "PINECONE_CLOUD", "PINECONE_REGION"):
+for _k in ("GEMINI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX", "PINECONE_CLOUD",
+           "PINECONE_REGION", "FAST2SMS_API_KEY"):
     try:
         if _k in st.secrets:
             os.environ[_k] = str(st.secrets[_k])
@@ -85,26 +86,57 @@ if "user" not in st.session_state:
 if "user" not in st.session_state:
     st.title("📚 Exam Question Predictor")
     st.write("Predict likely exam topics from past papers — with charts, study plans and accuracy checks.")
-    st.subheader("Log in / Create your account")
-    with st.form("login"):
-        name = st.text_input("Your name")
-        mobile = st.text_input("Mobile number (India)", placeholder="10-digit, starts 6–9")
-        ok = st.form_submit_button("Continue", use_container_width=True)
-    if ok:
-        m = valid_indian_mobile(mobile)
-        if not name.strip():
-            st.error("Please enter your name.")
-        elif not m:
-            st.error("Please enter a valid Indian mobile number (10 digits, starting 6–9).")
+    st.subheader("Log in with your mobile")
+
+    pend = st.session_state.get("otp_pending")
+    if not pend:
+        # Step 1: name + mobile → send OTP
+        with st.form("send_otp"):
+            name = st.text_input("Your name")
+            mobile = st.text_input("Mobile number (India)", placeholder="10-digit, starts 6–9")
+            send = st.form_submit_button("Send OTP", use_container_width=True)
+        if send:
+            m = valid_indian_mobile(mobile)
+            if not name.strip():
+                st.error("Please enter your name.")
+            elif not m:
+                st.error("Please enter a valid Indian mobile number (10 digits, starting 6–9).")
+            else:
+                import random
+                otp = str(random.randint(100000, 999999))
+                ok, info = pipeline.send_otp_sms(m, otp)
+                st.session_state["otp_pending"] = {"mobile": m, "name": name.strip(),
+                                                   "otp": otp, "ts": time.time(), "sent": ok}
+                st.rerun()
+    else:
+        # Step 2: verify OTP
+        if pend.get("sent"):
+            st.success(f"OTP sent to **{pend['mobile']}**. Please enter it below.")
         else:
-            try:
-                pipeline.save_user(m, name.strip())
-            except Exception:
-                pass
-            st.session_state["user"] = {"mobile": m, "name": name.strip(), "ns": "u" + m}
-            st.query_params["u"] = m
+            st.warning(f"SMS isn't set up yet — demo code: **{pend['otp']}**  "
+                       "(add FAST2SMS_API_KEY in Secrets for real SMS).")
+        with st.form("verify_otp"):
+            code = st.text_input("Enter the 6-digit OTP")
+            verify = st.form_submit_button("Verify & Log in", use_container_width=True)
+        if st.button("↩ Change number / Resend"):
+            st.session_state.pop("otp_pending", None)
             st.rerun()
-    st.caption("No OTP — just your name and mobile. Your papers and chats are saved under your number.")
+        if verify:
+            if time.time() - pend["ts"] > 300:
+                st.error("This OTP has expired. Please resend.")
+            elif re.sub(r"\D", "", code) == pend["otp"]:
+                try:
+                    pipeline.save_user(pend["mobile"], pend["name"])
+                except Exception:
+                    pass
+                st.session_state["user"] = {"mobile": pend["mobile"], "name": pend["name"],
+                                            "ns": "u" + pend["mobile"]}
+                st.query_params["u"] = pend["mobile"]
+                st.session_state.pop("otp_pending", None)
+                st.rerun()
+            else:
+                st.error("Wrong OTP. Please try again.")
+    st.caption("We send a one-time code to your mobile to verify it's you. No password needed.")
     st.stop()
 
 user = st.session_state["user"]

@@ -2,10 +2,13 @@
 Every function takes a `namespace` = one user's private space in Pinecone,
 so different people's papers never mix. Empty namespace = the default (local) space.
 """
+import json
 import math
 import os
 import re
 import time
+import urllib.parse
+import urllib.request
 import uuid
 from collections import Counter, defaultdict
 
@@ -435,6 +438,24 @@ def get_user(mobile):
     except Exception:
         pass
     return None
+
+
+def send_otp_sms(mobile, otp):
+    """Send an OTP via Fast2SMS. Returns (success, info)."""
+    key = os.getenv("FAST2SMS_API_KEY", "")
+    if not key:
+        return False, "no-key"
+    try:
+        url = "https://www.fast2sms.com/dev/bulkV2?" + urllib.parse.urlencode({
+            "authorization": key, "variables_values": str(otp),
+            "route": "otp", "numbers": mobile,
+        })
+        req = urllib.request.Request(url, headers={"cache-control": "no-cache"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode())
+        return bool(data.get("return")), str(data)
+    except Exception as e:
+        return False, str(e)
 
 
 def purge_old(namespace, days=RETENTION_DAYS):
