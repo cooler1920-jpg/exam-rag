@@ -68,7 +68,7 @@ QUICK = {
 }
 
 
-def render_structured_flat(rep, with_chart=True):
+def render_structured_flat(rep, with_chart=True, chart_key="c"):
     """Render a structured answer WITHOUT any inner expander (safe inside a report box)."""
     import pandas as pd
     import altair as alt
@@ -84,10 +84,21 @@ def render_structured_flat(rep, with_chart=True):
         clean.sort(key=lambda x: -x["value"])
         clean = clean[:8]
         if clean:
-            ch = alt.Chart(pd.DataFrame(clean)).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
-                x=alt.X("value:Q", title="Likely %", scale=alt.Scale(domain=[0, 100])),
-                y=alt.Y("label:N", sort="-x", title=None), tooltip=["label", "value"],
-            ).properties(height=max(140, 34 * len(clean)))
+            df = pd.DataFrame(clean)
+            # Hover shows friendly names: Topic (label) + Likely % (value)
+            tip = [alt.Tooltip("label:N", title="Topic"), alt.Tooltip("value:Q", title="Likely %")]
+            ctype = st.radio("Chart type", ["📊 Bar", "🥧 Pie"], horizontal=True,
+                             key=f"ct_{chart_key}", label_visibility="collapsed")
+            if ctype == "🥧 Pie":
+                ch = alt.Chart(df).mark_arc(innerRadius=50).encode(
+                    theta=alt.Theta("value:Q", title="Likely %"),
+                    color=alt.Color("label:N", legend=alt.Legend(title="Topic", orient="bottom")),
+                    tooltip=tip).properties(height=340)
+            else:
+                ch = alt.Chart(df).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
+                    x=alt.X("value:Q", title="Likely %", scale=alt.Scale(domain=[0, 100])),
+                    y=alt.Y("label:N", sort="-x", title=None), tooltip=tip,
+                ).properties(height=max(140, 34 * len(clean)))
             st.altair_chart(ch, use_container_width=True)
     for f in [f for f in (rep.get("findings") or []) if isinstance(f, dict)]:
         st.markdown(f"- **{f.get('point', '')}** — {f.get('detail', '')}")
@@ -399,7 +410,7 @@ if R["total"] == 0:
             "Your full report will appear here automatically.")
 else:
     with st.expander("🎯 Most important topics", expanded=True):
-        render_structured_flat(R.get("topics", {}))
+        render_structured_flat(R.get("topics", {}), chart_key="topics")
     with st.expander("📊 Topic dashboard (charts)"):
         render_dashboard(R["total"], R["rows"], R["series"])
     with st.expander("✅ Topics that cover 80%+"):
