@@ -164,13 +164,13 @@ def render_topic_chart(rows, chart_key="t"):
     """Bar/Pie of REAL question counts per topic. Hover = Topic · Questions · Chance %."""
     import pandas as pd
     import altair as alt
-    data = [{"Topic": r["topic"], "Questions": r["count"], "Chance %": r["prob"]}
+    data = [{"Topic": r["topic"], "Questions": r["count"], "Chance": r["prob"]}
             for r in rows[:10] if (r.get("topic", "") or "").lower() != "unknown"]
     if not data:
         return
     df = pd.DataFrame(data)
     tip = [alt.Tooltip("Topic:N"), alt.Tooltip("Questions:Q", title="Questions asked"),
-           alt.Tooltip("Chance %:Q", title="Chance next exam")]
+           alt.Tooltip("Chance:Q", title="Chance next exam (%)")]
     ctype = st.radio("Chart type", ["📊 Bar", "🥧 Pie"], horizontal=True,
                      key=f"tc_{chart_key}", label_visibility="collapsed")
     if ctype == "🥧 Pie":
