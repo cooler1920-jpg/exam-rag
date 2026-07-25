@@ -280,6 +280,46 @@ def coverage_md(series):
     return "\n".join(lines)
 
 
+def show_coverage(series):
+    """Render a PIE chart of topic coverage for each exam year, then the exact % text. Returns md."""
+    import pandas as pd
+    import altair as alt
+    from collections import defaultdict
+    yt = defaultdict(int)
+    ytt = defaultdict(lambda: defaultdict(int))
+    for s in series or []:
+        y = str(s["year"])
+        yt[y] += s["count"]
+        ytt[y][s["topic"]] += s["count"]
+    md = coverage_md(series)
+    if not any(yt.values()):
+        st.markdown(md)
+        return md
+
+    def yk(y):
+        return (0, -int(y)) if y.isdigit() else (1, 0)
+
+    st.markdown("**How much each topic covers in each exam — pie chart per year:**")
+    for y in sorted(yt, key=yk):
+        tot = yt[y] or 1
+        items = sorted(((t, c) for t, c in ytt[y].items()
+                        if c > 0 and (t or "").lower() != "unknown"), key=lambda kv: -kv[1])
+        top, others = items[:8], sum(c for _, c in items[8:])
+        rows = [{"Topic": t, "Questions": c, "Share": round(100 * c / tot)} for t, c in top]
+        if others > 0:
+            rows.append({"Topic": "Others", "Questions": others, "Share": round(100 * others / tot)})
+        st.markdown(f"**📅 {y} — {yt[y]} questions**")
+        ch = alt.Chart(pd.DataFrame(rows)).mark_arc(innerRadius=55).encode(
+            theta=alt.Theta("Questions:Q"),
+            color=alt.Color("Topic:N", legend=alt.Legend(
+                title="Topic", orient="bottom", columns=3, labelLimit=160)),
+            tooltip=[alt.Tooltip("Topic:N"), alt.Tooltip("Questions:Q"),
+                     alt.Tooltip("Share:Q", title="Share %")]).properties(height=320)
+        st.altair_chart(ch, use_container_width=True)
+    st.markdown(md)
+    return md
+
+
 def year_detail_md(detail):
     """Subject-wise list of the actual questions for ONE year (paper, page, q-number) + insight."""
     d = detail
@@ -693,12 +733,13 @@ if user_msg:
             _ym = re.search(r"\b(19|20)\d{2}\b", user_msg)
             _year = _ym.group(0) if (_ym and _ym.group(0) in _years) else None
             _lm = user_msg.lower()
+            _series = st.session_state.get(report_key, {}).get("series", [])
             _pct = ("%" in user_msg or "percent" in _lm) and any(
                 k in _lm for k in ["cover", "each", "topic", "part", "exam", "year", "paper", "how much"])
-            if _pct and not _year:
-                # exact % coverage per exam-year, computed (not guessed) from the data
-                assistant_md = coverage_md(st.session_state.get(report_key, {}).get("series", []))
-                st.markdown(assistant_md)
+            _chartreq = any(k in _lm for k in ["pie", "chart", "graph", "visual", "diagram"])
+            if (_pct or (_chartreq and not _topic)) and not _year:
+                # exact % coverage per exam-year as PIE charts, computed (not guessed) from the data
+                assistant_md = show_coverage(_series)
             elif _year and _drill and not _topic:
                 assistant_md = show_year_detail(pipeline.year_questions(namespace, _year))
             elif _topic and _drill:
