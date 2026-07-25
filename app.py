@@ -191,6 +191,18 @@ def render_topic_chart(rows, chart_key="t"):
                "and its chance of appearing in the next exam.")
 
 
+def _clean_q(text, limit=300):
+    """Make one question render as a single tidy line: no stray markdown lists,
+    embedded options shown inline as (1) (2) (3)…"""
+    t = (text or "").replace("\r", " ")
+    t = re.sub(r"\s*\n\s*", " ", t)           # newlines -> space (stops broken lists)
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    t = re.sub(r"\s([1-9])[\.\)]\s+", r"  ·  (\1) ", t)  # inline options: 1. x -> · (1) x
+    if len(t) > limit:
+        t = t[:limit - 1].rstrip() + "…"
+    return t
+
+
 def topic_detail_md(detail):
     """Year-wise list of the actual questions for one topic (paper, page, q-number) + insight."""
     d = detail
@@ -200,8 +212,7 @@ def topic_detail_md(detail):
     for yr in d["by_year"]:
         lines.append(f"\n**📅 {yr['year']} — {yr['count']} question(s):**")
         for it in yr["items"][:25]:
-            q = it["text"]
-            q = q if len(q) <= 200 else q[:197] + "…"
+            q = _clean_q(it["text"])
             src = []
             if it.get("q_no"):
                 src.append(f"Q{it['q_no']}")
@@ -226,8 +237,7 @@ def year_detail_md(detail):
     for tp in d["by_topic"]:
         lines.append(f"\n**{tp['topic']} — {tp['count']} question(s):**")
         for it in tp["items"][:12]:
-            q = it["text"]
-            q = q if len(q) <= 200 else q[:197] + "…"
+            q = _clean_q(it["text"])
             src = []
             if it.get("q_no"):
                 src.append(f"Q{it['q_no']}")
