@@ -461,9 +461,11 @@ def send_otp_sms(mobile, otp):
     if not key:
         return False, "no-key"
     try:
+        # Quick SMS route (route=q): NO DLT registration required.
+        msg = f"Your Exam Predictor verification code is {otp}. Valid for 5 minutes."
         url = "https://www.fast2sms.com/dev/bulkV2?" + urllib.parse.urlencode({
-            "authorization": key, "variables_values": str(otp),
-            "route": "otp", "numbers": mobile,
+            "authorization": key, "message": msg, "language": "english",
+            "route": "q", "flash": "0", "numbers": mobile,
         })
         req = urllib.request.Request(url, headers={"cache-control": "no-cache"})
         with urllib.request.urlopen(req, timeout=15) as r:
