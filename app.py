@@ -67,6 +67,87 @@ QUICK = {
     "🧠 Explain top topic": "Explain the single most likely topic in simple points.",
 }
 
+
+def render_structured_flat(rep, with_chart=True):
+    """Render a structured answer WITHOUT any inner expander (safe inside a report box)."""
+    import pandas as pd
+    import altair as alt
+    if rep.get("summary"):
+        st.markdown(f"**{rep['summary']}**")
+    if with_chart:
+        clean = []
+        for it in (rep.get("breakdown") or []):
+            try:
+                clean.append({"label": str(it.get("label", "")), "value": float(it.get("value", 0))})
+            except Exception:
+                pass
+        clean.sort(key=lambda x: -x["value"])
+        clean = clean[:8]
+        if clean:
+            ch = alt.Chart(pd.DataFrame(clean)).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
+                x=alt.X("value:Q", title="Likely %", scale=alt.Scale(domain=[0, 100])),
+                y=alt.Y("label:N", sort="-x", title=None), tooltip=["label", "value"],
+            ).properties(height=max(140, 34 * len(clean)))
+            st.altair_chart(ch, use_container_width=True)
+    for f in [f for f in (rep.get("findings") or []) if isinstance(f, dict)]:
+        st.markdown(f"- **{f.get('point', '')}** — {f.get('detail', '')}")
+    focus = rep.get("focus") or []
+    if focus:
+        st.markdown("**🎯 Focus on:**")
+        for x in focus:
+            st.markdown(f"- {x}")
+    if not rep:
+        st.caption("Couldn't build this section — try Refresh.")
+
+
+def render_dashboard(total, rows, series):
+    """Charts for the topic dashboard (no inner expander)."""
+    import pandas as pd
+    import altair as alt
+    top = rows[0]
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Questions", total)
+    m2.metric("Topics", len(rows))
+    m3.metric("Past exams", top["n_periods"])
+    m4.metric("Top pick", f"{top['prob']}%", top["topic"])
+    st.caption("Top 15 most-asked topics.")
+    df = pd.DataFrame(rows[:15])
+    color = alt.Color("trend:N", scale=alt.Scale(domain=["rising", "steady", "falling"],
+                      range=["#2f9e5f", "#9aa0ad", "#d9534f"]), legend=alt.Legend(title="Trend"))
+    bars = alt.Chart(df).mark_bar(cornerRadiusEnd=3).encode(
+        x=alt.X("prob:Q", title="Likely next exam (%)", scale=alt.Scale(domain=[0, 100])),
+        y=alt.Y("topic:N", sort="-x", title=None), color=color,
+        tooltip=["topic", "prob", "lo", "hi", "trend", "count"])
+    band = alt.Chart(df).mark_rule(color="#555", size=2).encode(
+        x="lo:Q", x2="hi:Q", y=alt.Y("topic:N", sort="-x"))
+    st.altair_chart((bars + band).properties(height=max(220, 40 * len(df))), use_container_width=True)
+    cl, cr = st.columns(2)
+    with cl:
+        st.markdown("**Trend over the years**")
+        if series:
+            tt = [r["topic"] for r in rows[:6]]
+            sdf = pd.DataFrame(series)
+            sdf = sdf[sdf["topic"].isin(tt)]
+            ln = alt.Chart(sdf).mark_line(point=True).encode(
+                x=alt.X("year:O", title="Year"), y=alt.Y("count:Q", title="Questions"),
+                color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
+                tooltip=["topic", "year", "count"]).properties(height=280)
+            st.altair_chart(ln, use_container_width=True)
+        else:
+            st.caption("Name files with the year to see trends.")
+    with cr:
+        st.markdown("**Share of questions (top 8)**")
+        top8 = rows[:8]
+        others = sum(r["count"] for r in rows[8:])
+        pie_rows = [{"topic": r["topic"], "count": r["count"]} for r in top8]
+        if others > 0:
+            pie_rows.append({"topic": "Others", "count": others})
+        dn = alt.Chart(pd.DataFrame(pie_rows)).mark_arc(innerRadius=55).encode(
+            theta=alt.Theta("count:Q"),
+            color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
+            tooltip=["topic", "count"]).properties(height=280)
+        st.altair_chart(dn, use_container_width=True)
+
 # =================== LOGIN (name + Indian mobile, no OTP) ===================
 def valid_indian_mobile(s):
     d = re.sub(r"\D", "", s or "")
@@ -214,22 +295,15 @@ with st.sidebar:
                     os.remove(path)
                     total += count
                     prog.progress(i / len(uploaded))
-                st.success(f"Learned {total} questions.")
+                st.session_state.pop(f"report_{namespace}", None)  # rebuild report with new papers
+                st.success(f"Learned {total} questions. Your report will refresh.")
             st.caption("Tip: name files with the year, e.g. `physics_2019.pdf`.")
         st.divider()
 
-        # ---- Suggested (collapsed box; quick actions + dashboard + compare) ----
-        with st.expander("⚡ Suggested", expanded=False):
-            for label, qtext in QUICK.items():
-                if st.button(label, use_container_width=True):
-                    picked = qtext
-            if st.button("📈 Topic dashboard", use_container_width=True):
-                st.session_state["dash"] = True
-            if st.button("✅ Compare with a real paper", use_container_width=True):
-                st.session_state["show_compare"] = not st.session_state.get("show_compare", False)
-        # Compare uploader appears just below the box (can't nest expanders)
-        if st.session_state.get("show_compare"):
-            actual_file = st.file_uploader("Upload the real recent paper",
+        # ---- Settings (⚙️ compare + account controls) ----
+        with st.expander("⚙️ Settings"):
+            st.markdown("**✅ Compare with a real paper**")
+            actual_file = st.file_uploader("Upload a recent real paper to check accuracy",
                                            type=["pdf", "docx", "txt", "md"], key="actual")
             if actual_file and st.button("Compare", use_container_width=True):
                 path = _save_upload(actual_file)
@@ -243,15 +317,11 @@ with st.sidebar:
                     except Exception:
                         pass
                 st.session_state["acc"] = result
-        st.divider()
-
-        # ---- Settings (⚙️ account controls) ----
-        with st.expander("⚙️ Settings"):
+            st.divider()
             if st.button("🗑️ Reset my data", use_container_width=True):
                 pipeline.reset_space(namespace)
-                for k in (chat_key, f"init_{namespace}", f"cur_{namespace}"):
+                for k in (chat_key, f"init_{namespace}", f"cur_{namespace}", f"report_{namespace}"):
                     st.session_state.pop(k, None)
-                st.session_state.pop("dash", None)
                 st.session_state.pop("acc", None)
                 st.success("Your data was cleared.")
             st.caption("⚠️ Danger zone — this cannot be undone.")
@@ -301,64 +371,44 @@ st.session_state.setdefault(chat_key, [])
 
 st.title("💬 Study assistant")
 
-# --- Dashboard panel (toggled from sidebar) ---
-if st.session_state.get("dash"):
-    with st.container(border=True):
-        c = st.columns([6, 1])
-        c[0].markdown("### 📈 Topic dashboard")
-        if c[1].button("✖ Hide"):
-            st.session_state.pop("dash", None)
-            st.rerun()
-        with st.spinner("Computing…"):
-            total, rows, series = pipeline.predict(namespace)
-        if total == 0:
-            st.info("Add some papers first (sidebar → Documents → Add papers).")
-        else:
-            import pandas as pd
-            import altair as alt
-            top = rows[0]
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Questions", total)
-            m2.metric("Topics", len(rows))
-            m3.metric("Past exams", top["n_periods"])
-            m4.metric("Top pick", f"{top['prob']}%", top["topic"])
-            st.caption("Showing the **top 15 most-asked topics**.")
-            df = pd.DataFrame(rows[:15])
-            color = alt.Color("trend:N", scale=alt.Scale(domain=["rising", "steady", "falling"],
-                              range=["#2f9e5f", "#9aa0ad", "#d9534f"]), legend=alt.Legend(title="Trend"))
-            bars = alt.Chart(df).mark_bar(cornerRadiusEnd=3).encode(
-                x=alt.X("prob:Q", title="Likely next exam (%)", scale=alt.Scale(domain=[0, 100])),
-                y=alt.Y("topic:N", sort="-x", title=None), color=color,
-                tooltip=["topic", "prob", "lo", "hi", "trend", "count"])
-            band = alt.Chart(df).mark_rule(color="#555", size=2).encode(
-                x="lo:Q", x2="hi:Q", y=alt.Y("topic:N", sort="-x"))
-            st.altair_chart((bars + band).properties(height=max(220, 40 * len(df))), use_container_width=True)
-            cl, cr = st.columns(2)
-            with cl:
-                st.markdown("**Trend over the years**")
-                if series:
-                    tt = [r["topic"] for r in rows[:6]]
-                    sdf = pd.DataFrame(series)
-                    sdf = sdf[sdf["topic"].isin(tt)]
-                    ln = alt.Chart(sdf).mark_line(point=True).encode(
-                        x=alt.X("year:O", title="Year"), y=alt.Y("count:Q", title="Questions"),
-                        color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
-                        tooltip=["topic", "year", "count"]).properties(height=280)
-                    st.altair_chart(ln, use_container_width=True)
-                else:
-                    st.caption("Name files with the year to see trends.")
-            with cr:
-                st.markdown("**Share of questions (top 8)**")
-                top8 = rows[:8]
-                others = sum(r["count"] for r in rows[8:])
-                pie_rows = [{"topic": r["topic"], "count": r["count"]} for r in top8]
-                if others > 0:
-                    pie_rows.append({"topic": "Others", "count": others})
-                dn = alt.Chart(pd.DataFrame(pie_rows)).mark_arc(innerRadius=55).encode(
-                    theta=alt.Theta("count:Q"),
-                    color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
-                    tooltip=["topic", "count"]).properties(height=280)
-                st.altair_chart(dn, use_container_width=True)
+# --- Auto report: 5 sections built automatically from the papers (cached per session) ---
+report_key = f"report_{namespace}"
+rc = st.columns([6, 1])
+rc[0].markdown("### 📋 Your exam report")
+if rc[1].button("🔄 Refresh"):
+    st.session_state.pop(report_key, None)
+
+if report_key not in st.session_state:
+    with st.spinner("Reading your papers and preparing your report…"):
+        total, rows, series = pipeline.predict(namespace)
+        R = {"total": total, "rows": rows, "series": series}
+        if total > 0:
+            for k, q in (("topics", QUICK["📊 Predict topics"]),
+                         ("cover", QUICK["🎯 Cover 80%+"]),
+                         ("plan", QUICK["📝 Study plan"]),
+                         ("explain", QUICK["🧠 Explain top topic"])):
+                try:
+                    R[k] = pipeline.answer_structured(q, namespace=namespace)
+                except Exception:
+                    R[k] = {}
+        st.session_state[report_key] = R
+
+R = st.session_state[report_key]
+if R["total"] == 0:
+    st.info("👋 Add your past papers in the sidebar (📄 Your documents → ➕ Add papers). "
+            "Your full report will appear here automatically.")
+else:
+    with st.expander("🎯 Most important topics", expanded=True):
+        render_structured_flat(R.get("topics", {}))
+    with st.expander("📊 Topic dashboard (charts)"):
+        render_dashboard(R["total"], R["rows"], R["series"])
+    with st.expander("✅ Topics that cover 80%+"):
+        render_structured_flat(R.get("cover", {}), with_chart=False)
+    with st.expander("📝 Study plan"):
+        render_structured_flat(R.get("plan", {}), with_chart=False)
+    with st.expander("🧠 Top topic explained"):
+        render_structured_flat(R.get("explain", {}), with_chart=False)
+    st.caption("💬 Need anything more? Just ask below.")
 
 # --- Accuracy panel (toggled after a comparison) ---
 if st.session_state.get("acc") is not None:
@@ -394,7 +444,7 @@ for msg in st.session_state[chat_key]:
         st.markdown(msg["content"])
 
 if not st.session_state[chat_key]:
-    st.caption("👋 Add papers in the sidebar, then ask me anything — or tap a Suggested action.")
+    st.caption("👆 Your report is above. Ask me anything else about your papers below.")
 
 typed = st.chat_input("Ask anything about your papers…")
 user_msg = picked or typed
