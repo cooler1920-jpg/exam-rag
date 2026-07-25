@@ -600,8 +600,14 @@ if st.session_state.get("acc") is not None:
 
 # --- Conversation ---
 for msg in st.session_state[chat_key]:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    if msg["role"] == "user":
+        with st.chat_message("user", avatar="🙋"):
+            st.markdown("**❓ Question**")
+            st.markdown(msg["content"])
+    else:
+        with st.chat_message("assistant", avatar="🧠"):
+            st.markdown("**✅ Answer**")
+            st.markdown(msg["content"])
 
 if not st.session_state[chat_key]:
     st.caption("👆 Your report is above. Ask me anything else about your papers below.")
@@ -612,10 +618,12 @@ user_msg = picked or typed
 
 if user_msg:
     st.session_state[chat_key].append({"role": "user", "content": user_msg})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="🙋"):
+        st.markdown("**❓ Question**")
         st.markdown(user_msg)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="🧠"):
+        st.markdown("**✅ Answer**")
         with st.spinner("Analysing your papers…"):
             _rows = st.session_state.get(report_key, {}).get("rows") or []
             _topic = topic_in_query(user_msg, _rows)
