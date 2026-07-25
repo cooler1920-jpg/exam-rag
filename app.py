@@ -190,17 +190,17 @@ with st.sidebar:
         st.divider()
 
         # ---- Documents ----
-        st.markdown('<div class="navlabel">📄 Your documents</div>', unsafe_allow_html=True)
         try:
             docs = pipeline.list_documents(namespace)
         except Exception:
             docs = []
-        if docs:
-            for name, cnt in docs[:15]:
-                short = name if len(name) <= 30 else name[:27] + "…"
-                st.caption(f"• {short}  ({cnt})")
-        else:
-            st.caption("No papers yet.")
+        with st.expander(f"📄 Your documents ({len(docs)})", expanded=False):
+            if docs:
+                for name, cnt in docs[:15]:
+                    short = name if len(name) <= 30 else name[:27] + "…"
+                    st.caption(f"• {short}  ({cnt})")
+            else:
+                st.caption("No papers yet.")
         with st.expander("➕ Add papers"):
             uploaded = st.file_uploader("Upload past papers", type=["pdf", "docx", "txt", "md"],
                                         accept_multiple_files=True)
