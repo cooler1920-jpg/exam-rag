@@ -357,6 +357,15 @@ def reset_space(namespace):
             pass
 
 
+def delete_account(mobile):
+    """Erase the account completely: all their papers/chats/history AND the login record."""
+    reset_space("u" + mobile)
+    try:
+        rag.get_index().delete(ids=[mobile], namespace=USERS_NS)
+    except Exception:
+        pass
+
+
 # --- RETENTION: keep data for 15 days, then auto-delete ---
 RETENTION_DAYS = 15
 

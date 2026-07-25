@@ -227,15 +227,11 @@ with st.sidebar:
             st.caption("Tip: name files with the year, e.g. `physics_2019.pdf`.")
         st.divider()
 
-        # ---- Quick actions ----
+        # ---- Suggested (quick actions + dashboard + compare) ----
         st.markdown('<div class="navlabel">⚡ Suggested</div>', unsafe_allow_html=True)
         for label, qtext in QUICK.items():
             if st.button(label, use_container_width=True):
                 picked = qtext
-        st.divider()
-
-        # ---- Tools ----
-        st.markdown('<div class="navlabel">📊 Tools</div>', unsafe_allow_html=True)
         if st.button("📈 Topic dashboard", use_container_width=True):
             st.session_state["dash"] = True
         with st.expander("✅ Compare with a real paper"):
@@ -253,14 +249,25 @@ with st.sidebar:
                     except Exception:
                         pass
                 st.session_state["acc"] = result
-        with st.expander("⚙️ Manage"):
-            if st.button("🗑️ Reset this space", use_container_width=True):
+        st.divider()
+
+        # ---- Settings (⚙️ account controls) ----
+        with st.expander("⚙️ Settings"):
+            if st.button("🗑️ Reset my data", use_container_width=True):
                 pipeline.reset_space(namespace)
                 for k in (chat_key, f"init_{namespace}", f"cur_{namespace}"):
                     st.session_state.pop(k, None)
                 st.session_state.pop("dash", None)
                 st.session_state.pop("acc", None)
-                st.success("Space cleared.")
+                st.success("Your data was cleared.")
+            st.caption("⚠️ Danger zone — this cannot be undone.")
+            if st.checkbox("Yes, permanently delete my account", key="del_ack"):
+                if st.button("❌ Delete my account", use_container_width=True, type="primary"):
+                    pipeline.delete_account(user["mobile"])
+                    for k in list(st.session_state.keys()):
+                        st.session_state.pop(k, None)
+                    st.query_params.clear()
+                    st.rerun()
 
         # Owner-only: customer list (set ADMIN_MOBILE in Secrets to your number)
         admin_m = re.sub(r"\D", "", os.getenv("ADMIN_MOBILE", ""))
