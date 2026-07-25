@@ -88,73 +88,51 @@ if "user" not in st.session_state:
 if "user" not in st.session_state:
     st.title("📚 Exam Question Predictor")
     st.write("Predict likely exam topics from past papers — with charts, study plans and accuracy checks.")
-    st.subheader("Log in with your mobile")
+    st.subheader("Log in / Create account")
 
     def _clean_name():
         st.session_state["li_name"] = re.sub(r"[^A-Za-z .]", "", st.session_state.get("li_name", ""))
 
-    def _clean_mobile():
-        st.session_state["li_mobile"] = re.sub(r"\D", "", st.session_state.get("li_mobile", ""))[:10]
+    def _autofill_pwd():
+        # As soon as a mobile number is typed, pre-fill the password with its last 4 digits.
+        v = st.session_state.get("li_mob")
+        if v is not None:
+            d = re.sub(r"\D", "", str(int(v)))
+            if len(d) >= 4:
+                st.session_state["li_pwd"] = d[-4:]
 
-    def _clean_otp():
-        st.session_state["li_otp"] = re.sub(r"\D", "", st.session_state.get("li_otp", ""))[:6]
+    def _clean_pwd():
+        st.session_state["li_pwd"] = re.sub(r"\D", "", st.session_state.get("li_pwd", ""))[:4]
 
-    pend = st.session_state.get("otp_pending")
-    if not pend:
-        # Step 1: name (letters only) + mobile (digits only, max 10) → send OTP
-        st.text_input("Your name", key="li_name", max_chars=40, on_change=_clean_name,
-                      placeholder="Letters only")
-        mob_val = st.number_input("Mobile number (India)", min_value=0, max_value=9999999999,
-                                  value=None, step=1, format="%d",
-                                  placeholder="10 digits, starts 6–9")
-        if st.button("Send OTP", use_container_width=True):
-            name = st.session_state.get("li_name", "").strip()
-            raw_mob = "" if mob_val is None else str(int(mob_val))
-            m = valid_indian_mobile(raw_mob)
-            if not name:
-                st.error("Please enter your name (letters only).")
-            elif not m:
-                st.error("Please enter a valid 10-digit Indian mobile number (starting 6–9).")
-            else:
-                import random
-                otp = str(random.randint(100000, 999999))
-                ok, info = pipeline.send_otp_sms(m, otp)
-                st.session_state["otp_pending"] = {"mobile": m, "name": name, "otp": otp,
-                                                   "ts": time.time(), "sent": ok, "info": str(info)}
-                st.session_state.pop("li_otp", None)
-                st.rerun()
-    else:
-        # Step 2: verify OTP (digits only, max 6)
-        if pend.get("sent"):
-            st.success(f"OTP sent to **{pend['mobile']}**. Please enter it below.")
+    st.text_input("Your name", key="li_name", max_chars=40, on_change=_clean_name,
+                  placeholder="Letters only")
+    mob_val = st.number_input("Mobile number (India)", min_value=0, max_value=9999999999,
+                              value=None, step=1, format="%d", key="li_mob",
+                              on_change=_autofill_pwd, placeholder="10 digits, starts 6–9")
+    st.text_input("Password (4 digits)", key="li_pwd", max_chars=4, on_change=_clean_pwd)
+    st.caption("💡 Your password is the **last 4 digits of your phone number** — it fills in "
+               "automatically after you type your number.")
+
+    if st.button("Log in", use_container_width=True, type="primary"):
+        name = st.session_state.get("li_name", "").strip()
+        raw_mob = "" if mob_val is None else str(int(mob_val))
+        m = valid_indian_mobile(raw_mob)
+        pwd = st.session_state.get("li_pwd", "")
+        if not name:
+            st.error("Please enter your name (letters only).")
+        elif not m:
+            st.error("Please enter a valid 10-digit Indian mobile number (starting 6–9).")
+        elif pwd != m[-4:]:
+            st.error("Wrong password — it's the last 4 digits of your phone number.")
         else:
-            st.info(f"Your verification code is **{pend['otp']}** — enter it below to continue.")
-        st.text_input("Enter the 6-digit OTP", key="li_otp", max_chars=6, on_change=_clean_otp)
-        col1, col2 = st.columns(2)
-        verify = col1.button("Verify & Log in", use_container_width=True)
-        if col2.button("↩ Change number / Resend", use_container_width=True):
-            st.session_state.pop("otp_pending", None)
-            st.session_state.pop("li_otp", None)
+            try:
+                pipeline.save_user(m, name)
+            except Exception:
+                pass
+            st.session_state["user"] = {"mobile": m, "name": name, "ns": "u" + m}
+            st.query_params["u"] = m
             st.rerun()
-        if verify:
-            code = st.session_state.get("li_otp", "")
-            if time.time() - pend["ts"] > 300:
-                st.error("This OTP has expired. Please resend.")
-            elif code == pend["otp"]:
-                try:
-                    pipeline.save_user(pend["mobile"], pend["name"])
-                except Exception:
-                    pass
-                st.session_state["user"] = {"mobile": pend["mobile"], "name": pend["name"],
-                                            "ns": "u" + pend["mobile"]}
-                st.query_params["u"] = pend["mobile"]
-                st.session_state.pop("otp_pending", None)
-                st.session_state.pop("li_otp", None)
-                st.rerun()
-            else:
-                st.error("Wrong OTP. Please try again.")
-    st.caption("We send a one-time code to verify it's you. By continuing, you agree we store your "
-               "name and mobile to keep your account.")
+    st.caption("By continuing, you agree we store your name and mobile to keep your account.")
     st.stop()
 
 user = st.session_state["user"]
