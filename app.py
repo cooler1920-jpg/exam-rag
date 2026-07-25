@@ -244,6 +244,44 @@ def year_detail_md(detail):
     return "\n".join(lines)
 
 
+def show_topic_detail(detail):
+    """Chart (questions per YEAR) + year-wise question list. Renders and returns the markdown."""
+    import pandas as pd
+    import altair as alt
+    rows = [{"Year": str(y["year"]), "Questions": y["count"]}
+            for y in detail.get("by_year", []) if str(y["year"]).isdigit()]
+    if rows:
+        df = pd.DataFrame(rows)
+        ch = alt.Chart(df).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
+            x=alt.X("Year:O", title="Year"),
+            y=alt.Y("Questions:Q", title="Questions asked"),
+            tooltip=[alt.Tooltip("Year:O"), alt.Tooltip("Questions:Q", title="Questions asked")],
+        ).properties(height=240)
+        st.altair_chart(ch, use_container_width=True)
+    md = topic_detail_md(detail)
+    st.markdown(md)
+    return md
+
+
+def show_year_detail(detail):
+    """Chart (questions per SUBJECT) + subject-wise question list. Renders and returns the markdown."""
+    import pandas as pd
+    import altair as alt
+    rows = [{"Subject": t["topic"], "Questions": t["count"]}
+            for t in detail.get("by_topic", [])[:12] if (t.get("topic", "") or "").lower() != "unknown"]
+    if rows:
+        df = pd.DataFrame(rows)
+        ch = alt.Chart(df).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
+            x=alt.X("Questions:Q", title="Questions asked"),
+            y=alt.Y("Subject:N", sort="-x", title=None),
+            tooltip=[alt.Tooltip("Subject:N"), alt.Tooltip("Questions:Q", title="Questions asked")],
+        ).properties(height=max(140, 34 * len(rows)))
+        st.altair_chart(ch, use_container_width=True)
+    md = year_detail_md(detail)
+    st.markdown(md)
+    return md
+
+
 def topic_in_query(msg, rows):
     """If the user's message names one of the known topics, return that topic (longest match)."""
     m = (msg or "").lower()
@@ -511,7 +549,7 @@ else:
         if pick and pick != "—":
             with st.spinner("Pulling year-wise questions…"):
                 detail = pipeline.topic_questions(namespace, pick)
-            st.markdown(topic_detail_md(detail))
+            show_topic_detail(detail)
 
         # Year filter: pick a year → subject-wise question breakdown for that year
         years = sorted({str(s["year"]) for s in R.get("series", [])}, reverse=True)
@@ -521,7 +559,7 @@ else:
             if ypick and ypick != "—":
                 with st.spinner(f"Loading {ypick} questions…"):
                     ydetail = pipeline.year_questions(namespace, ypick)
-                st.markdown(year_detail_md(ydetail))
+                show_year_detail(ydetail)
     with st.expander("📊 Topic dashboard (charts)"):
         render_dashboard(R["total"], R["rows"], R["series"])
     with st.expander("✅ Topics that cover 80%+"):
@@ -595,12 +633,9 @@ if user_msg:
             _ym = re.search(r"\b(19|20)\d{2}\b", user_msg)
             _year = _ym.group(0) if (_ym and _ym.group(0) in _years) else None
             if _year and _drill and not _topic:
-                assistant_md = year_detail_md(pipeline.year_questions(namespace, _year))
-                st.markdown(assistant_md)
+                assistant_md = show_year_detail(pipeline.year_questions(namespace, _year))
             elif _topic and _drill:
-                detail = pipeline.topic_questions(namespace, _topic)
-                assistant_md = topic_detail_md(detail)
-                st.markdown(assistant_md)
+                assistant_md = show_topic_detail(pipeline.topic_questions(namespace, _topic))
             elif _is_prediction(user_msg):
                 rep = pipeline.answer_structured(user_msg, namespace=namespace)
                 parts = []
