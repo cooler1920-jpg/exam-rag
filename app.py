@@ -141,14 +141,6 @@ user = st.session_state["user"]
 picked = None
 with st.sidebar:
     st.markdown("## 📚 Exam Predictor")
-    st.caption(f"👤 **{user['name']}** · {user['mobile']}")
-    if st.button("Log out", use_container_width=True):
-        st.session_state.pop("user", None)
-        try:
-            st.query_params.clear()
-        except Exception:
-            pass
-        st.rerun()
     namespace = user["ns"]
 
     if namespace:
@@ -174,11 +166,10 @@ with st.sidebar:
         chat_key = f"chat_{namespace}"
         st.session_state.setdefault(chat_key, [])
 
-        st.caption("🕒 Your data auto-deletes after 15 days.")
         st.divider()
 
-        # ---- Chats ----
-        if st.button("🆕 New chat", use_container_width=True):
+        # ---- Chats ----  (New chat = just a clean + icon, label on hover)
+        if st.button("➕", help="New chat", key="newchat"):
             cur = "t-" + str(int(time.time()))
             st.session_state[f"cur_{namespace}"] = cur
             st.session_state[chat_key] = []
@@ -287,6 +278,18 @@ with st.sidebar:
                 st.dataframe(df, use_container_width=True, hide_index=True)
                 st.download_button("⬇ Download CSV", df.to_csv(index=False),
                                    "customers.csv", "text/csv", use_container_width=True)
+
+        # ---- Account (bottom): name · number + Log out ----
+        st.divider()
+        st.caption(f"👤 **{user['name']}** · {user['mobile']}")
+        st.caption("🕒 Your data auto-deletes after 15 days.")
+        if st.button("Log out", use_container_width=True):
+            st.session_state.pop("user", None)
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            st.rerun()
 
 # =================== MAIN ===================
 cur = st.session_state.get(f"cur_{namespace}", "main")
