@@ -141,8 +141,9 @@ def render_dashboard(total, rows, series):
             sdf = sdf[sdf["topic"].isin(tt)]
             ln = alt.Chart(sdf).mark_line(point=True).encode(
                 x=alt.X("year:O", title="Year"), y=alt.Y("count:Q", title="Questions"),
-                color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
-                tooltip=["topic", "year", "count"]).properties(height=280)
+                color=alt.Color("topic:N", legend=alt.Legend(
+                    title="Topic", orient="bottom", columns=2, labelLimit=160)),
+                tooltip=["topic", "year", "count"]).properties(height=300)
             st.altair_chart(ln, use_container_width=True)
         else:
             st.caption("Name files with the year to see trends.")
@@ -155,8 +156,9 @@ def render_dashboard(total, rows, series):
             pie_rows.append({"topic": "Others", "count": others})
         dn = alt.Chart(pd.DataFrame(pie_rows)).mark_arc(innerRadius=55).encode(
             theta=alt.Theta("count:Q"),
-            color=alt.Color("topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
-            tooltip=["topic", "count"]).properties(height=280)
+            color=alt.Color("topic:N", legend=alt.Legend(
+                title="Topic", orient="bottom", columns=2, labelLimit=160)),
+            tooltip=["topic", "count"]).properties(height=300)
         st.altair_chart(dn, use_container_width=True)
 
 
@@ -176,8 +178,9 @@ def render_topic_chart(rows, chart_key="t"):
     if ctype == "🥧 Pie":
         ch = alt.Chart(df).mark_arc(innerRadius=55).encode(
             theta=alt.Theta("Questions:Q"),
-            color=alt.Color("Topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
-            tooltip=tip).properties(height=340)
+            color=alt.Color("Topic:N", legend=alt.Legend(
+                title="Topic", orient="bottom", columns=3, labelLimit=180, symbolLimit=60)),
+            tooltip=tip).properties(height=360)
     else:
         ch = alt.Chart(df).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
             x=alt.X("Questions:Q", title="Number of questions asked"),
@@ -211,6 +214,33 @@ def topic_detail_md(detail):
     lines.append(f"\n💡 **Insight:** **{d['topic']}** appears in **{len(d['by_year'])}** of your papers; "
                  f"the most questions came in **{peak['year']}** ({peak['count']}). "
                  f"A frequently-repeating, high-yield topic worth prioritising.")
+    return "\n".join(lines)
+
+
+def year_detail_md(detail):
+    """Subject-wise list of the actual questions for ONE year (paper, page, q-number) + insight."""
+    d = detail
+    if not d.get("total"):
+        return f"No questions found for **{d.get('year', '')}** yet."
+    lines = [f"**📅 {d['year']} — {d['total']} question(s)** across {len(d['by_topic'])} subject(s)."]
+    for tp in d["by_topic"]:
+        lines.append(f"\n**{tp['topic']} — {tp['count']} question(s):**")
+        for it in tp["items"][:12]:
+            q = it["text"]
+            q = q if len(q) <= 200 else q[:197] + "…"
+            src = []
+            if it.get("q_no"):
+                src.append(f"Q{it['q_no']}")
+            src.append(str(it.get("source", "?")))
+            src.append(f"page {it.get('page', '?')}")
+            if it.get("marks"):
+                src.append(f"{it['marks']} marks")
+            lines.append(f"- {q}  \n  _{' · '.join(src)}_")
+        if tp["count"] > 12:
+            lines.append(f"  …and **{tp['count'] - 12} more** {tp['topic']} question(s).")
+    top = d["by_topic"][0]
+    lines.append(f"\n💡 **Insight:** in **{d['year']}**, **{top['topic']}** had the most questions "
+                 f"({top['count']}). Focus there first when revising this year's pattern.")
     return "\n".join(lines)
 
 
@@ -482,6 +512,16 @@ else:
             with st.spinner("Pulling year-wise questions…"):
                 detail = pipeline.topic_questions(namespace, pick)
             st.markdown(topic_detail_md(detail))
+
+        # Year filter: pick a year → subject-wise question breakdown for that year
+        years = sorted({str(s["year"]) for s in R.get("series", [])}, reverse=True)
+        if years:
+            ypick = st.selectbox("📅 Filter by year (see that year's questions, subject-wise)",
+                                 ["—"] + years, key="yearpick")
+            if ypick and ypick != "—":
+                with st.spinner(f"Loading {ypick} questions…"):
+                    ydetail = pipeline.year_questions(namespace, ypick)
+                st.markdown(year_detail_md(ydetail))
     with st.expander("📊 Topic dashboard (charts)"):
         render_dashboard(R["total"], R["rows"], R["series"])
     with st.expander("✅ Topics that cover 80%+"):
@@ -551,7 +591,13 @@ if user_msg:
             _drill = any(k in user_msg.lower() for k in
                          ["how many", "how much", "question", "year", "came", "from ",
                           "list", "which", "example", "paper", "page"])
-            if _topic and _drill:
+            _years = {str(s["year"]) for s in st.session_state.get(report_key, {}).get("series", [])}
+            _ym = re.search(r"\b(19|20)\d{2}\b", user_msg)
+            _year = _ym.group(0) if (_ym and _ym.group(0) in _years) else None
+            if _year and _drill and not _topic:
+                assistant_md = year_detail_md(pipeline.year_questions(namespace, _year))
+                st.markdown(assistant_md)
+            elif _topic and _drill:
                 detail = pipeline.topic_questions(namespace, _topic)
                 assistant_md = topic_detail_md(detail)
                 st.markdown(assistant_md)

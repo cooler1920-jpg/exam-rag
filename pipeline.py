@@ -271,6 +271,30 @@ def topic_questions(namespace, topic):
             "by_year": [{"year": y, "count": len(by_year[y]), "items": by_year[y]} for y in years]}
 
 
+def year_questions(namespace, year):
+    """Every stored question from ONE year, grouped by subject/topic (with paper, page, q-no)."""
+    index = rag.get_index()
+    probe = [0.1] * config.EMBED_DIM
+    res = index.query(vector=probe, top_k=1000, include_metadata=True, namespace=namespace)
+    want = str(year).strip()
+    by_topic = defaultdict(list)
+    for m in res.get("matches", []):
+        md = m["metadata"]
+        if str(md.get("year", "")).strip() != want:
+            continue
+        by_topic[(md.get("topic", "") or "unknown")].append({
+            "source": md.get("source", "?"),
+            "page": md.get("page", "?"),
+            "q_no": md.get("q_no", ""),
+            "marks": md.get("marks", ""),
+            "text": md.get("text", ""),
+        })
+    total = sum(len(v) for v in by_topic.values())
+    topics = sorted(by_topic.keys(), key=lambda t: -len(by_topic[t]))  # most-asked subject first
+    return {"year": want, "total": total,
+            "by_topic": [{"topic": t, "count": len(by_topic[t]), "items": by_topic[t]} for t in topics]}
+
+
 def predict_narrative(rows, top=6):
     """Have the LLM turn the computed numbers into a short study briefing."""
     if not rows:
