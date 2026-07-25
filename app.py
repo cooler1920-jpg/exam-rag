@@ -64,13 +64,64 @@ QUICK = {
     "🧠 Explain top topic": "Explain the single most likely topic in simple points.",
 }
 
+# =================== LOGIN (name + Indian mobile, no OTP) ===================
+def valid_indian_mobile(s):
+    d = re.sub(r"\D", "", s or "")
+    if len(d) == 12 and d.startswith("91"):
+        d = d[2:]
+    if len(d) == 11 and d.startswith("0"):
+        d = d[1:]
+    return d if re.fullmatch(r"[6-9]\d{9}", d) else None
+
+
+if "user" not in st.session_state:
+    qp = st.query_params.get("u")
+    if qp:
+        mob = re.sub(r"\D", "", qp)
+        u = pipeline.get_user(mob)
+        if u:
+            st.session_state["user"] = {"mobile": mob, "name": u.get("name", "Student"), "ns": "u" + mob}
+
+if "user" not in st.session_state:
+    st.title("📚 Exam Question Predictor")
+    st.write("Predict likely exam topics from past papers — with charts, study plans and accuracy checks.")
+    st.subheader("Log in / Create your account")
+    with st.form("login"):
+        name = st.text_input("Your name")
+        mobile = st.text_input("Mobile number (India)", placeholder="10-digit, starts 6–9")
+        ok = st.form_submit_button("Continue", use_container_width=True)
+    if ok:
+        m = valid_indian_mobile(mobile)
+        if not name.strip():
+            st.error("Please enter your name.")
+        elif not m:
+            st.error("Please enter a valid Indian mobile number (10 digits, starting 6–9).")
+        else:
+            try:
+                pipeline.save_user(m, name.strip())
+            except Exception:
+                pass
+            st.session_state["user"] = {"mobile": m, "name": name.strip(), "ns": "u" + m}
+            st.query_params["u"] = m
+            st.rerun()
+    st.caption("No OTP — just your name and mobile. Your papers and chats are saved under your number.")
+    st.stop()
+
+user = st.session_state["user"]
+
 # =================== SIDEBAR ===================
 picked = None
 with st.sidebar:
     st.markdown("## 📚 Exam Predictor")
-    raw = st.text_input("Workspace (optional)", value="", placeholder="default: main",
-                        help="Leave blank for the shared 'main' space, or type a private name.")
-    namespace = re.sub(r"[^a-z0-9_-]", "", raw.strip().lower()) or "main"
+    st.caption(f"👤 **{user['name']}** · {user['mobile']}")
+    if st.button("Log out", use_container_width=True):
+        st.session_state.pop("user", None)
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+        st.rerun()
+    namespace = user["ns"]
 
     if namespace:
         # one-time init for this space this session
@@ -95,7 +146,7 @@ with st.sidebar:
         chat_key = f"chat_{namespace}"
         st.session_state.setdefault(chat_key, [])
 
-        st.caption(f"Space: **{namespace}**  ·  🕒 auto-deletes after 15 days")
+        st.caption("🕒 Your data auto-deletes after 15 days.")
         st.divider()
 
         # ---- Chats ----

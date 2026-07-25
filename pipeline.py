@@ -413,6 +413,30 @@ def list_documents(namespace):
     return sorted(seen.items())
 
 
+# --- Simple accounts (name + mobile, no OTP) ---
+USERS_NS = "__users"
+
+
+def save_user(mobile, name):
+    index = rag.get_index()
+    index.upsert(vectors=[(mobile, [0.1] * config.EMBED_DIM,
+                 {"name": name[:60], "mobile": mobile, "created_at": int(time.time())})],
+                 namespace=USERS_NS)
+
+
+def get_user(mobile):
+    index = rag.get_index()
+    try:
+        res = index.query(vector=[0.1] * config.EMBED_DIM, top_k=1000,
+                          include_metadata=True, namespace=USERS_NS)
+        for m in res.get("matches", []):
+            if m["id"] == mobile:
+                return m["metadata"]
+    except Exception:
+        pass
+    return None
+
+
 def purge_old(namespace, days=RETENTION_DAYS):
     """Delete anything in this space older than `days` (across papers, history, chat)."""
     index = rag.get_index()
