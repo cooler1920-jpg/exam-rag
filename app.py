@@ -88,43 +88,56 @@ if "user" not in st.session_state:
     st.write("Predict likely exam topics from past papers — with charts, study plans and accuracy checks.")
     st.subheader("Log in with your mobile")
 
+    def _clean_name():
+        st.session_state["li_name"] = re.sub(r"[^A-Za-z .]", "", st.session_state.get("li_name", ""))
+
+    def _clean_mobile():
+        st.session_state["li_mobile"] = re.sub(r"\D", "", st.session_state.get("li_mobile", ""))[:10]
+
+    def _clean_otp():
+        st.session_state["li_otp"] = re.sub(r"\D", "", st.session_state.get("li_otp", ""))[:6]
+
     pend = st.session_state.get("otp_pending")
     if not pend:
-        # Step 1: name + mobile → send OTP
-        with st.form("send_otp"):
-            name = st.text_input("Your name")
-            mobile = st.text_input("Mobile number (India)", placeholder="10-digit, starts 6–9")
-            send = st.form_submit_button("Send OTP", use_container_width=True)
-        if send:
-            m = valid_indian_mobile(mobile)
-            if not name.strip():
-                st.error("Please enter your name.")
+        # Step 1: name (letters only) + mobile (digits only, max 10) → send OTP
+        st.text_input("Your name", key="li_name", max_chars=40, on_change=_clean_name,
+                      placeholder="Letters only")
+        st.text_input("Mobile number (India)", key="li_mobile", max_chars=10, on_change=_clean_mobile,
+                      placeholder="10 digits, starts 6–9")
+        if st.button("Send OTP", use_container_width=True):
+            name = st.session_state.get("li_name", "").strip()
+            m = valid_indian_mobile(st.session_state.get("li_mobile", ""))
+            if not name:
+                st.error("Please enter your name (letters only).")
             elif not m:
-                st.error("Please enter a valid Indian mobile number (10 digits, starting 6–9).")
+                st.error("Please enter a valid 10-digit Indian mobile number (starting 6–9).")
             else:
                 import random
                 otp = str(random.randint(100000, 999999))
                 ok, info = pipeline.send_otp_sms(m, otp)
-                st.session_state["otp_pending"] = {"mobile": m, "name": name.strip(),
+                st.session_state["otp_pending"] = {"mobile": m, "name": name,
                                                    "otp": otp, "ts": time.time(), "sent": ok}
+                st.session_state.pop("li_otp", None)
                 st.rerun()
     else:
-        # Step 2: verify OTP
+        # Step 2: verify OTP (digits only, max 6)
         if pend.get("sent"):
             st.success(f"OTP sent to **{pend['mobile']}**. Please enter it below.")
         else:
             st.warning(f"SMS isn't set up yet — demo code: **{pend['otp']}**  "
                        "(add FAST2SMS_API_KEY in Secrets for real SMS).")
-        with st.form("verify_otp"):
-            code = st.text_input("Enter the 6-digit OTP")
-            verify = st.form_submit_button("Verify & Log in", use_container_width=True)
-        if st.button("↩ Change number / Resend"):
+        st.text_input("Enter the 6-digit OTP", key="li_otp", max_chars=6, on_change=_clean_otp)
+        col1, col2 = st.columns(2)
+        verify = col1.button("Verify & Log in", use_container_width=True)
+        if col2.button("↩ Change number / Resend", use_container_width=True):
             st.session_state.pop("otp_pending", None)
+            st.session_state.pop("li_otp", None)
             st.rerun()
         if verify:
+            code = st.session_state.get("li_otp", "")
             if time.time() - pend["ts"] > 300:
                 st.error("This OTP has expired. Please resend.")
-            elif re.sub(r"\D", "", code) == pend["otp"]:
+            elif code == pend["otp"]:
                 try:
                     pipeline.save_user(pend["mobile"], pend["name"])
                 except Exception:
@@ -133,6 +146,7 @@ if "user" not in st.session_state:
                                             "ns": "u" + pend["mobile"]}
                 st.query_params["u"] = pend["mobile"]
                 st.session_state.pop("otp_pending", None)
+                st.session_state.pop("li_otp", None)
                 st.rerun()
             else:
                 st.error("Wrong OTP. Please try again.")
