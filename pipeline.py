@@ -7,6 +7,7 @@ import math
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -468,6 +469,12 @@ def send_otp_sms(mobile, otp):
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.loads(r.read().decode())
         return bool(data.get("return")), str(data)
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode()
+        except Exception:
+            body = ""
+        return False, f"HTTP {e.code}: {body[:250]}"
     except Exception as e:
         return False, str(e)
 
