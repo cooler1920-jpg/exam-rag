@@ -218,14 +218,17 @@ with st.sidebar:
             st.caption("Tip: name files with the year, e.g. `physics_2019.pdf`.")
         st.divider()
 
-        # ---- Suggested (quick actions + dashboard + compare) ----
-        st.markdown('<div class="navlabel">⚡ Suggested</div>', unsafe_allow_html=True)
-        for label, qtext in QUICK.items():
-            if st.button(label, use_container_width=True):
-                picked = qtext
-        if st.button("📈 Topic dashboard", use_container_width=True):
-            st.session_state["dash"] = True
-        with st.expander("✅ Compare with a real paper"):
+        # ---- Suggested (collapsed box; quick actions + dashboard + compare) ----
+        with st.expander("⚡ Suggested", expanded=False):
+            for label, qtext in QUICK.items():
+                if st.button(label, use_container_width=True):
+                    picked = qtext
+            if st.button("📈 Topic dashboard", use_container_width=True):
+                st.session_state["dash"] = True
+            if st.button("✅ Compare with a real paper", use_container_width=True):
+                st.session_state["show_compare"] = not st.session_state.get("show_compare", False)
+        # Compare uploader appears just below the box (can't nest expanders)
+        if st.session_state.get("show_compare"):
             actual_file = st.file_uploader("Upload the real recent paper",
                                            type=["pdf", "docx", "txt", "md"], key="actual")
             if actual_file and st.button("Compare", use_container_width=True):
