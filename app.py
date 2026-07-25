@@ -128,12 +128,7 @@ if "user" not in st.session_state:
         if pend.get("sent"):
             st.success(f"OTP sent to **{pend['mobile']}**. Please enter it below.")
         else:
-            reason = pend.get("info", "")
-            if reason == "no-key":
-                st.warning(f"SMS key not detected yet (the app may still be rebooting, or the "
-                           f"secret name differs). Demo code: **{pend['otp']}**.")
-            else:
-                st.warning(f"Couldn't send SMS. Reason: `{reason[:200]}`  ·  Demo code: **{pend['otp']}**.")
+            st.info(f"Your verification code is **{pend['otp']}** — enter it below to continue.")
         st.text_input("Enter the 6-digit OTP", key="li_otp", max_chars=6, on_change=_clean_otp)
         col1, col2 = st.columns(2)
         verify = col1.button("Verify & Log in", use_container_width=True)
