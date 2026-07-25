@@ -252,6 +252,34 @@ def topic_detail_md(detail):
     return "\n".join(lines)
 
 
+def coverage_md(series):
+    """Deterministic: for each exam year, what % of that year's questions each topic covers."""
+    from collections import defaultdict
+    yt = defaultdict(int)
+    ytt = defaultdict(lambda: defaultdict(int))
+    for s in series or []:
+        y = str(s["year"])
+        yt[y] += s["count"]
+        ytt[y][s["topic"]] += s["count"]
+    if not any(yt.values()):
+        return ("I can't split by exam because your papers aren't year-labelled. "
+                "Name files with the year (e.g. `AIIMS_2023.pdf`) and re-upload.")
+
+    def yk(y):
+        return (0, -int(y)) if y.isdigit() else (1, 0)
+
+    lines = ["**How much each topic covers in each exam (by year):**"]
+    for y in sorted(yt, key=yk):
+        tot = yt[y] or 1
+        lines.append(f"\n**📅 {y} — {yt[y]} questions:**")
+        for t, c in sorted(ytt[y].items(), key=lambda kv: -kv[1])[:12]:
+            if (t or "").lower() == "unknown" or c == 0:
+                continue
+            lines.append(f"- {t} — **{round(100 * c / tot)}%**  ({c} Qs)")
+    lines.append("\n💡 % = that topic's share of that year's questions.")
+    return "\n".join(lines)
+
+
 def year_detail_md(detail):
     """Subject-wise list of the actual questions for ONE year (paper, page, q-number) + insight."""
     d = detail
@@ -664,7 +692,14 @@ if user_msg:
             _years = {str(s["year"]) for s in st.session_state.get(report_key, {}).get("series", [])}
             _ym = re.search(r"\b(19|20)\d{2}\b", user_msg)
             _year = _ym.group(0) if (_ym and _ym.group(0) in _years) else None
-            if _year and _drill and not _topic:
+            _lm = user_msg.lower()
+            _pct = ("%" in user_msg or "percent" in _lm) and any(
+                k in _lm for k in ["cover", "each", "topic", "part", "exam", "year", "paper", "how much"])
+            if _pct and not _year:
+                # exact % coverage per exam-year, computed (not guessed) from the data
+                assistant_md = coverage_md(st.session_state.get(report_key, {}).get("series", []))
+                st.markdown(assistant_md)
+            elif _year and _drill and not _topic:
                 assistant_md = show_year_detail(pipeline.year_questions(namespace, _year))
             elif _topic and _drill:
                 assistant_md = show_topic_detail(pipeline.topic_questions(namespace, _topic))
