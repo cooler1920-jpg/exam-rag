@@ -624,3 +624,47 @@ def chat_structured(history, namespace=""):
         if not isinstance(data.get(k), list):
             data[k] = []
     return data
+
+
+def chat_reply(history, namespace=""):
+    """Flexible chat answer that FOLLOWS the student's exact instructions (count, length, format).
+    Returns plain Markdown text — no fixed template, so 'top 10 in short bullets' works properly."""
+    index = rag.get_index()
+    question = history[-1]["content"]
+    # Real ranked topic stats so "top N topics" uses actual data, in the right order.
+    total, rows, _ = predict(namespace)
+    stats = "\n".join(
+        f"{i + 1}. {r['topic']} — asked {r['count']} times, {r['prob']}% likely next exam, trend {r['trend']}"
+        for i, r in enumerate(rows[:25])
+    ) or "(no topics yet — the student hasn't added papers)"
+    # Relevant exam questions for grounding.
+    qvec = rag.embed(question, is_query=True)
+    res = index.query(vector=qvec, top_k=8, include_metadata=True, namespace=namespace)
+    matches = res.get("matches", [])[:6]
+    ctx = "\n\n".join(
+        f"[{m['metadata']['source']}, page {m['metadata']['page']}] {m['metadata']['text']}"
+        for m in matches
+    ) or "(no papers uploaded yet)"
+    convo = "\n".join(
+        f"{'Student' if h['role'] == 'user' else 'Tutor'}: {h['content']}"
+        for h in history[-6:]
+    )
+    prompt = (
+        "You are an exam-prep tutor. Answer the student's LAST message DIRECTLY and follow their "
+        "instructions EXACTLY. This matters most:\n"
+        "- If they ask for a specific NUMBER (e.g. 'top 10'), give EXACTLY that many items — count them.\n"
+        "- If they say 'short' / 'very short', keep each line to a few words; no long sentences.\n"
+        "- If they ask for bullets or a numbered list, use exactly that format and nothing else.\n"
+        "- Do NOT add extra sections, trends, insights, or commentary they did not ask for.\n"
+        "- Rank 'top'/'most important' topics using the stats order below (already sorted).\n"
+        "- Use ONLY the data below. If it's not there, say so briefly.\n"
+        "- Plain Markdown only. No preamble like 'Sure' or 'Here is'.\n\n"
+        f"TOPIC STATS (ranked, most-asked first):\n{stats}\n\n"
+        f"RELEVANT EXAM QUESTIONS:\n{ctx}\n\n"
+        f"CONVERSATION SO FAR:\n{convo}\n\n"
+        f"STUDENT'S LAST MESSAGE:\n{question}"
+    )
+    try:
+        return (rag._gen_text(prompt) or "").strip() or "I couldn't find that in your papers."
+    except Exception:
+        return "Sorry, I couldn't answer that just now — please try again."

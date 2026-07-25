@@ -610,13 +610,6 @@ typed = st.chat_input("Ask anything about your papers…")
 user_msg = picked or typed
 
 
-def _is_prediction(t):
-    t = t.lower()
-    keys = ["predict", "topic", "cover", "focus", "likely", "important",
-            "most ", "study plan", "%", "chapter", "priorit", "score"]
-    return any(k in t for k in keys)
-
-
 if user_msg:
     st.session_state[chat_key].append({"role": "user", "content": user_msg})
     with st.chat_message("user"):
@@ -636,63 +629,10 @@ if user_msg:
                 assistant_md = show_year_detail(pipeline.year_questions(namespace, _year))
             elif _topic and _drill:
                 assistant_md = show_topic_detail(pipeline.topic_questions(namespace, _topic))
-            elif _is_prediction(user_msg):
-                rep = pipeline.answer_structured(user_msg, namespace=namespace)
-                parts = []
-                if rep.get("summary"):
-                    st.info(rep["summary"])
-                    parts.append(rep["summary"])
-                clean = []
-                for it in (rep.get("breakdown") or []):
-                    try:
-                        clean.append({"label": str(it.get("label", "")), "value": float(it.get("value", 0))})
-                    except Exception:
-                        pass
-                clean.sort(key=lambda x: -x["value"])
-                clean = clean[:8]
-                if clean:
-                    import pandas as pd
-                    import altair as alt
-                    ch = alt.Chart(pd.DataFrame(clean)).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
-                        x=alt.X("value:Q", title="Likely %", scale=alt.Scale(domain=[0, 100])),
-                        y=alt.Y("label:N", sort="-x", title=None), tooltip=["label", "value"],
-                    ).properties(height=max(140, 34 * len(clean)))
-                    st.altair_chart(ch, use_container_width=True)
-                findings = [f for f in (rep.get("findings") or []) if isinstance(f, dict)]
-                if findings:
-                    st.markdown("**Key points:**")
-                    for f in findings[:4]:
-                        st.markdown(f"- **{f.get('point', '')}** — {f.get('detail', '')}")
-                        parts.append(f"- {f.get('point', '')}: {f.get('detail', '')}")
-                extra = findings[4:]
-                focus = rep.get("focus") or []
-                if extra or focus:
-                    with st.expander("📖 Read more"):
-                        for f in extra:
-                            st.markdown(f"- **{f.get('point', '')}** — {f.get('detail', '')}")
-                        if focus:
-                            st.markdown("**🎯 Focus on:**")
-                            st.markdown("\n".join(f"- {x}" for x in focus))
-                    parts += [f"- {f.get('point', '')}: {f.get('detail', '')}" for f in extra]
-                    parts += [f"- {x}" for x in focus]
-                foot = []
-                if rep.get("confidence"):
-                    foot.append(f"Confidence: {rep['confidence']}")
-                if rep.get("sources"):
-                    foot.append("Sources: " + " · ".join(rep["sources"][:3]))
-                if foot:
-                    st.caption("  |  ".join(foot))
-                assistant_md = "\n".join(parts) or "(no answer)"
             else:
-                rep = pipeline.chat_structured(st.session_state[chat_key], namespace=namespace)
-                md = rep.get("answer", "")
-                for pt in rep.get("points", []):
-                    if isinstance(pt, dict) and pt.get("point"):
-                        md += f"\n- **{pt['point']}** — {pt.get('detail', '')}"
-                st.markdown(md)
-                if rep.get("sources"):
-                    st.caption("Sources: " + " · ".join(rep["sources"]))
-                assistant_md = md
+                # Flexible answer that obeys the student's exact wording (count, length, format).
+                assistant_md = pipeline.chat_reply(st.session_state[chat_key], namespace=namespace)
+                st.markdown(assistant_md)
 
     st.session_state[chat_key].append({"role": "assistant", "content": assistant_md})
     try:
