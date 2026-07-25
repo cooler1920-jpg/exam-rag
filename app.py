@@ -21,6 +21,31 @@ import pipeline  # noqa: E402
 
 st.set_page_config(page_title="Exam Question Predictor", page_icon="📚", layout="wide")
 
+# --- ChatGPT-style sidebar polish ---
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] { background:#0d0e12; border-right:1px solid #1c1e26; }
+section[data-testid="stSidebar"] .block-container { padding-top:1rem; }
+/* buttons -> clean nav rows */
+section[data-testid="stSidebar"] .stButton > button{
+  width:100%; background:transparent; border:1px solid transparent; color:#ececf1;
+  text-align:left; justify-content:flex-start; padding:.45rem .6rem; border-radius:8px;
+  font-weight:400; box-shadow:none; transition:background .12s;
+}
+section[data-testid="stSidebar"] .stButton > button:hover{ background:rgba(255,255,255,.07); }
+section[data-testid="stSidebar"] .stButton > button:focus{ box-shadow:none; }
+/* text input */
+section[data-testid="stSidebar"] div[data-baseweb="input"] > div{ background:#1a1c22; border-radius:10px; border-color:#2a2d36 !important; }
+section[data-testid="stSidebar"] div[data-baseweb="input"] > div:focus-within{ border-color:#4C8BF5 !important; }
+/* section labels (ChatGPT 'Recents' style) */
+.navlabel{ font-size:.72rem; letter-spacing:.07em; text-transform:uppercase; color:#8a8f98; margin:.7rem 0 .25rem; }
+/* dividers + expanders */
+section[data-testid="stSidebar"] hr{ margin:.55rem 0; border-color:#20222b; }
+section[data-testid="stSidebar"] details summary{ border-radius:8px; }
+section[data-testid="stSidebar"] details summary:hover{ background:rgba(255,255,255,.05); }
+</style>
+""", unsafe_allow_html=True)
+
 
 def _save_upload(f):
     suffix = "." + f.name.rsplit(".", 1)[-1]
@@ -78,7 +103,7 @@ with st.sidebar:
             cur = "t-" + str(int(time.time()))
             st.session_state[f"cur_{namespace}"] = cur
             st.session_state[chat_key] = []
-        st.markdown("**💬 Your chats**")
+        st.markdown('<div class="navlabel">💬 Your chats</div>', unsafe_allow_html=True)
         try:
             all_threads = pipeline.list_threads(namespace)
         except Exception:
@@ -95,7 +120,7 @@ with st.sidebar:
         st.divider()
 
         # ---- Documents ----
-        st.markdown("**📄 Your documents**")
+        st.markdown('<div class="navlabel">📄 Your documents</div>', unsafe_allow_html=True)
         try:
             docs = pipeline.list_documents(namespace)
         except Exception:
@@ -124,14 +149,14 @@ with st.sidebar:
         st.divider()
 
         # ---- Quick actions ----
-        st.markdown("**⚡ Suggested**")
+        st.markdown('<div class="navlabel">⚡ Suggested</div>', unsafe_allow_html=True)
         for label, qtext in QUICK.items():
             if st.button(label, use_container_width=True):
                 picked = qtext
         st.divider()
 
         # ---- Tools ----
-        st.markdown("**📊 Tools**")
+        st.markdown('<div class="navlabel">📊 Tools</div>', unsafe_allow_html=True)
         if st.button("📈 Topic dashboard", use_container_width=True):
             st.session_state["dash"] = True
         with st.expander("✅ Compare with a real paper"):
