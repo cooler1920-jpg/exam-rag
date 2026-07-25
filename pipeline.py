@@ -64,6 +64,7 @@ def ingest_path(path, namespace=""):
                 "year": year,
                 "topic": (q.get("topic", "").strip() or "unknown"),
                 "marks": q.get("marks", ""),
+                "q_no": str(q.get("question_number", "") or "")[:10],
                 "created_at": int(time.time()),
             }
             vectors.append((vid, rag.embed(qtext), meta))
@@ -239,6 +240,35 @@ def predict(namespace=""):
         for topic in topic_pcount for y in years_sorted
     ]
     return total, rows, series
+
+
+def topic_questions(namespace, topic):
+    """Every stored question for one topic, grouped by year (with paper, page, q-number)."""
+    index = rag.get_index()
+    probe = [0.1] * config.EMBED_DIM
+    res = index.query(vector=probe, top_k=1000, include_metadata=True, namespace=namespace)
+    want = (topic or "").strip().lower()
+    by_year = defaultdict(list)
+    for m in res.get("matches", []):
+        md = m["metadata"]
+        if (md.get("topic", "") or "").strip().lower() != want:
+            continue
+        y = str(md.get("year", "unknown"))
+        by_year[y].append({
+            "source": md.get("source", "?"),
+            "page": md.get("page", "?"),
+            "q_no": md.get("q_no", ""),
+            "marks": md.get("marks", ""),
+            "text": md.get("text", ""),
+        })
+    total = sum(len(v) for v in by_year.values())
+
+    def yk(y):  # newest numeric year first, unknown last
+        return (0, -int(y)) if y.isdigit() else (1, 0)
+
+    years = sorted(by_year.keys(), key=yk)
+    return {"topic": topic, "total": total,
+            "by_year": [{"year": y, "count": len(by_year[y]), "items": by_year[y]} for y in years]}
 
 
 def predict_narrative(rows, top=6):

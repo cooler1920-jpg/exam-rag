@@ -159,6 +159,69 @@ def render_dashboard(total, rows, series):
             tooltip=["topic", "count"]).properties(height=280)
         st.altair_chart(dn, use_container_width=True)
 
+
+def render_topic_chart(rows, chart_key="t"):
+    """Bar/Pie of REAL question counts per topic. Hover = Topic · Questions · Chance %."""
+    import pandas as pd
+    import altair as alt
+    data = [{"Topic": r["topic"], "Questions": r["count"], "Chance %": r["prob"]}
+            for r in rows[:10] if (r.get("topic", "") or "").lower() != "unknown"]
+    if not data:
+        return
+    df = pd.DataFrame(data)
+    tip = [alt.Tooltip("Topic:N"), alt.Tooltip("Questions:Q", title="Questions asked"),
+           alt.Tooltip("Chance %:Q", title="Chance next exam")]
+    ctype = st.radio("Chart type", ["📊 Bar", "🥧 Pie"], horizontal=True,
+                     key=f"tc_{chart_key}", label_visibility="collapsed")
+    if ctype == "🥧 Pie":
+        ch = alt.Chart(df).mark_arc(innerRadius=55).encode(
+            theta=alt.Theta("Questions:Q"),
+            color=alt.Color("Topic:N", legend=alt.Legend(title="Topic", orient="bottom")),
+            tooltip=tip).properties(height=340)
+    else:
+        ch = alt.Chart(df).mark_bar(cornerRadiusEnd=3, color="#4C8BF5").encode(
+            x=alt.X("Questions:Q", title="Number of questions asked"),
+            y=alt.Y("Topic:N", sort="-x", title=None), tooltip=tip,
+        ).properties(height=max(140, 34 * len(df)))
+    st.altair_chart(ch, use_container_width=True)
+    st.caption("Bar = how many questions came from that topic. Hover for the exact number "
+               "and its chance of appearing in the next exam.")
+
+
+def topic_detail_md(detail):
+    """Year-wise list of the actual questions for one topic (paper, page, q-number) + insight."""
+    d = detail
+    if not d.get("total"):
+        return f"No questions found for **{d.get('topic', '')}** yet."
+    lines = [f"**{d['topic']} — {d['total']} question(s)** across {len(d['by_year'])} paper(s)/year(s)."]
+    for yr in d["by_year"]:
+        lines.append(f"\n**📅 {yr['year']} — {yr['count']} question(s):**")
+        for it in yr["items"][:25]:
+            q = it["text"]
+            q = q if len(q) <= 200 else q[:197] + "…"
+            src = []
+            if it.get("q_no"):
+                src.append(f"Q{it['q_no']}")
+            src.append(str(it.get("source", "?")))
+            src.append(f"page {it.get('page', '?')}")
+            if it.get("marks"):
+                src.append(f"{it['marks']} marks")
+            lines.append(f"- {q}  \n  _{' · '.join(src)}_")
+    peak = max(d["by_year"], key=lambda y: y["count"])
+    lines.append(f"\n💡 **Insight:** **{d['topic']}** appears in **{len(d['by_year'])}** of your papers; "
+                 f"the most questions came in **{peak['year']}** ({peak['count']}). "
+                 f"A frequently-repeating, high-yield topic worth prioritising.")
+    return "\n".join(lines)
+
+
+def topic_in_query(msg, rows):
+    """If the user's message names one of the known topics, return that topic (longest match)."""
+    m = (msg or "").lower()
+    hits = [r["topic"] for r in rows
+            if (r.get("topic", "") or "").lower() != "unknown" and r["topic"].lower() in m]
+    hits.sort(key=len, reverse=True)
+    return hits[0] if hits else None
+
 # =================== LOGIN (name + Indian mobile, no OTP) ===================
 def valid_indian_mobile(s):
     d = re.sub(r"\D", "", s or "")
@@ -410,7 +473,16 @@ if R["total"] == 0:
             "Your full report will appear here automatically.")
 else:
     with st.expander("🎯 Most important topics", expanded=True):
-        render_structured_flat(R.get("topics", {}), chart_key="topics")
+        render_structured_flat(R.get("topics", {}), with_chart=False)
+        render_topic_chart(R["rows"], "topics")
+        names = [r["topic"] for r in R["rows"][:25]
+                 if (r.get("topic", "") or "").lower() != "unknown"]
+        pick = st.selectbox("🔍 See every question from a topic (year-wise)",
+                            ["—"] + names, key="topicpick")
+        if pick and pick != "—":
+            with st.spinner("Pulling year-wise questions…"):
+                detail = pipeline.topic_questions(namespace, pick)
+            st.markdown(topic_detail_md(detail))
     with st.expander("📊 Topic dashboard (charts)"):
         render_dashboard(R["total"], R["rows"], R["series"])
     with st.expander("✅ Topics that cover 80%+"):
@@ -475,7 +547,16 @@ if user_msg:
 
     with st.chat_message("assistant"):
         with st.spinner("Analysing your papers…"):
-            if _is_prediction(user_msg):
+            _rows = st.session_state.get(report_key, {}).get("rows") or []
+            _topic = topic_in_query(user_msg, _rows)
+            _drill = any(k in user_msg.lower() for k in
+                         ["how many", "how much", "question", "year", "came", "from ",
+                          "list", "which", "example", "paper", "page"])
+            if _topic and _drill:
+                detail = pipeline.topic_questions(namespace, _topic)
+                assistant_md = topic_detail_md(detail)
+                st.markdown(assistant_md)
+            elif _is_prediction(user_msg):
                 rep = pipeline.answer_structured(user_msg, namespace=namespace)
                 parts = []
                 if rep.get("summary"):

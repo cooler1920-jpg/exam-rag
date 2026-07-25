@@ -62,7 +62,9 @@ _TRANSCRIBE_PROMPT = (
     "This is one page of a previous-year exam question paper. "
     "Read it carefully and split it into individual questions. "
     "Return JSON in exactly this shape: "
-    '{"questions": [{"question_text": "...", "topic": "...", "marks": "..."}]}. '
+    '{"questions": [{"question_text": "...", "topic": "...", "marks": "...", "question_number": "..."}]}. '
+    "question_number = the number/label shown next to the question on the paper (e.g. '15', 'Q.15', "
+    "'12(a)'), or empty string if none is visible. "
     "For each question: question_text = the full question (write mathematics as plain "
     "text/LaTeX and describe any diagram, graph, or figure in words so it is searchable); "
     "topic = a BROAD subject/chapter category in 1-3 words that MANY questions can share "
