@@ -46,6 +46,12 @@ section[data-testid="stSidebar"] details summary{ border-radius:8px; }
 section[data-testid="stSidebar"] details summary:hover{ background:rgba(255,255,255,.05); }
 /* hide number-input steppers (cleaner phone field) */
 [data-testid="stNumberInput"] button{ display:none !important; }
+/* keep the report title + Refresh button pinned to the top while scrolling */
+.st-key-reportbar{
+  position: sticky; top: 2.875rem; z-index: 100;
+  background: var(--background-color, #0e1117);
+  padding: .3rem 0 .4rem; border-bottom: 1px solid #20222b;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -538,10 +544,11 @@ st.title("💬 Study assistant")
 
 # --- Auto report: 5 sections built automatically from the papers (cached per session) ---
 report_key = f"report_{namespace}"
-rc = st.columns([6, 1])
-rc[0].markdown("### 📋 Your exam report")
-if rc[1].button("🔄 Refresh"):
-    st.session_state.pop(report_key, None)
+with st.container(key="reportbar"):  # sticky bar: stays at top while you scroll
+    rc = st.columns([6, 1])
+    rc[0].markdown("### 📋 Your exam report")
+    if rc[1].button("🔄 Refresh"):
+        st.session_state.pop(report_key, None)
 
 if report_key not in st.session_state:
     with st.spinner("Reading your papers and preparing your report…"):
