@@ -323,12 +323,12 @@ with st.sidebar:
 
         st.divider()
 
-        # ---- Chats ----  (New chat = just a clean + icon, label on hover)
-        if st.button("➕", help="New chat", key="newchat"):
+        # ======== CHATS ========
+        if st.button("➕ New chat", use_container_width=True, key="newchat"):
             cur = "t-" + str(int(time.time()))
             st.session_state[f"cur_{namespace}"] = cur
             st.session_state[chat_key] = []
-        st.markdown('<div class="navlabel">💬 Your chats</div>', unsafe_allow_html=True)
+        st.markdown('<div class="navlabel">💬 Recent chats</div>', unsafe_allow_html=True)
         try:
             all_threads = pipeline.list_threads(namespace)
         except Exception:
@@ -342,23 +342,23 @@ with st.sidebar:
                     cur = t["thread"]
         else:
             st.caption("No chats yet — ask something below.")
-        st.divider()
 
-        # ---- Documents ----
+        # ======== PAPERS (documents + upload in one box) ========
+        st.markdown('<div class="navlabel">📄 Papers</div>', unsafe_allow_html=True)
         try:
             docs = pipeline.list_documents(namespace)
         except Exception:
             docs = []
-        with st.expander(f"📄 Your documents ({len(docs)})", expanded=False):
+        with st.expander(f"Your papers ({len(docs)})", expanded=False):
             if docs:
                 for name, cnt in docs[:15]:
                     short = name if len(name) <= 30 else name[:27] + "…"
                     st.caption(f"• {short}  ({cnt})")
             else:
                 st.caption("No papers yet.")
-        with st.expander("➕ Add papers"):
+            st.markdown("**➕ Add more papers**")
             uploaded = st.file_uploader("Upload past papers", type=["pdf", "docx", "txt", "md"],
-                                        accept_multiple_files=True)
+                                        accept_multiple_files=True, label_visibility="collapsed")
             if uploaded and st.button("Learn these files", use_container_width=True):
                 prog = st.progress(0.0)
                 total = 0
@@ -372,10 +372,10 @@ with st.sidebar:
                 st.session_state.pop(f"report_{namespace}", None)  # rebuild report with new papers
                 st.success(f"Learned {total} questions. Your report will refresh.")
             st.caption("Tip: name files with the year, e.g. `physics_2019.pdf`.")
-        st.divider()
 
-        # ---- Settings (⚙️ compare + account controls) ----
-        with st.expander("⚙️ Settings"):
+        # ======== TOOLS ========
+        st.markdown('<div class="navlabel">⚙️ Tools</div>', unsafe_allow_html=True)
+        with st.expander("Settings"):
             st.markdown("**✅ Compare with a real paper**")
             actual_file = st.file_uploader("Upload a recent real paper to check accuracy",
                                            type=["pdf", "docx", "txt", "md"], key="actual")
@@ -407,10 +407,9 @@ with st.sidebar:
                     st.query_params.clear()
                     st.rerun()
 
-        # Owner-only: customer list (set ADMIN_MOBILE in Secrets to your number)
+        # ======== ADMIN (owner only) ========
         admin_m = re.sub(r"\D", "", os.getenv("ADMIN_MOBILE", ""))
         if admin_m and user["mobile"] == admin_m:
-            st.divider()
             st.markdown('<div class="navlabel">👑 Admin</div>', unsafe_allow_html=True)
             with st.expander("Customers"):
                 import datetime
@@ -426,7 +425,7 @@ with st.sidebar:
                 st.download_button("⬇ Download CSV", df.to_csv(index=False),
                                    "customers.csv", "text/csv", use_container_width=True)
 
-        # ---- Account (bottom): name · number + Log out ----
+        # ======== ACCOUNT (bottom) ========
         st.divider()
         st.caption(f"👤 **{user['name']}** · {user['mobile']}")
         st.caption("🕒 Your data auto-deletes after 15 days.")
@@ -469,7 +468,7 @@ if report_key not in st.session_state:
 
 R = st.session_state[report_key]
 if R["total"] == 0:
-    st.info("👋 Add your past papers in the sidebar (📄 Your documents → ➕ Add papers). "
+    st.info("👋 Add your past papers in the sidebar (📄 Papers → Your papers → Add more papers). "
             "Your full report will appear here automatically.")
 else:
     with st.expander("🎯 Most important topics", expanded=True):
