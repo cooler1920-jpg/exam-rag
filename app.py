@@ -44,6 +44,8 @@ section[data-testid="stSidebar"] div[data-baseweb="input"] > div:focus-within{ b
 section[data-testid="stSidebar"] hr{ margin:.55rem 0; border-color:#20222b; }
 section[data-testid="stSidebar"] details summary{ border-radius:8px; }
 section[data-testid="stSidebar"] details summary:hover{ background:rgba(255,255,255,.05); }
+/* hide number-input steppers (cleaner phone field) */
+[data-testid="stNumberInput"] button{ display:none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -102,11 +104,13 @@ if "user" not in st.session_state:
         # Step 1: name (letters only) + mobile (digits only, max 10) → send OTP
         st.text_input("Your name", key="li_name", max_chars=40, on_change=_clean_name,
                       placeholder="Letters only")
-        st.text_input("Mobile number (India)", key="li_mobile", max_chars=10, on_change=_clean_mobile,
-                      placeholder="10 digits, starts 6–9")
+        mob_val = st.number_input("Mobile number (India)", min_value=0, max_value=9999999999,
+                                  value=None, step=1, format="%d",
+                                  placeholder="10 digits, starts 6–9")
         if st.button("Send OTP", use_container_width=True):
             name = st.session_state.get("li_name", "").strip()
-            m = valid_indian_mobile(st.session_state.get("li_mobile", ""))
+            raw_mob = "" if mob_val is None else str(int(mob_val))
+            m = valid_indian_mobile(raw_mob)
             if not name:
                 st.error("Please enter your name (letters only).")
             elif not m:
