@@ -280,6 +280,27 @@ def coverage_md(series):
     return "\n".join(lines)
 
 
+def cover_target_md(rows, total, target=80):
+    """Minimum topics (most-asked first) to cover ~target% of ALL past questions — the 80/20 plan."""
+    if not total or not rows:
+        return "Add some papers first, then I can tell you the smallest set of topics to cover."
+    target = max(10, min(100, int(target or 80)))
+    picks, cum = [], 0
+    for r in rows:
+        if (r.get("topic", "") or "").lower() == "unknown":
+            continue
+        cum += r["count"]
+        picks.append((r["topic"], r["count"], round(100 * cum / total)))
+        if 100 * cum / total >= target:
+            break
+    lines = [f"**To cover ~{target}% of all questions, study these {len(picks)} topics "
+             f"(most-asked first):**"]
+    for i, (t, c, cp) in enumerate(picks, 1):
+        lines.append(f"{i}. **{t}** — {c} Qs  _(running total {cp}%)_")
+    lines.append(f"\n💡 Just these {len(picks)} topics cover about **{picks[-1][2]}%** of every past question.")
+    return "\n".join(lines)
+
+
 def show_coverage(series):
     """Render a PIE chart of topic coverage for each exam year, then the exact % text. Returns md."""
     import pandas as pd
@@ -724,26 +745,23 @@ if user_msg:
     with st.chat_message("assistant", avatar="🧠"):
         st.markdown("**✅ Answer**")
         with st.spinner("Analysing your papers…"):
-            _rows = st.session_state.get(report_key, {}).get("rows") or []
-            _topic = topic_in_query(user_msg, _rows)
-            _drill = any(k in user_msg.lower() for k in
-                         ["how many", "how much", "question", "year", "came", "from ",
-                          "list", "which", "example", "paper", "page"])
-            _years = {str(s["year"]) for s in st.session_state.get(report_key, {}).get("series", [])}
-            _ym = re.search(r"\b(19|20)\d{2}\b", user_msg)
-            _year = _ym.group(0) if (_ym and _ym.group(0) in _years) else None
-            _lm = user_msg.lower()
-            _series = st.session_state.get(report_key, {}).get("series", [])
-            _pct = ("%" in user_msg or "percent" in _lm) and any(
-                k in _lm for k in ["cover", "each", "topic", "part", "exam", "year", "paper", "how much"])
-            _chartreq = any(k in _lm for k in ["pie", "chart", "graph", "visual", "diagram"])
-            if (_pct or (_chartreq and not _topic)) and not _year:
-                # exact % coverage per exam-year as PIE charts, computed (not guessed) from the data
+            _R = st.session_state.get(report_key, {})
+            _rows = _R.get("rows") or []
+            _series = _R.get("series") or []
+            _topics = [r["topic"] for r in _rows if (r.get("topic", "") or "").lower() != "unknown"]
+            _years = list({str(s["year"]) for s in _series})
+            # AI router: understands the question (typos/Hinglish included) and picks how to answer.
+            intent = pipeline.classify_intent(user_msg, _topics, _years)
+            it = intent.get("intent")
+            if it == "coverage_by_year":
                 assistant_md = show_coverage(_series)
-            elif _year and _drill and not _topic:
-                assistant_md = show_year_detail(pipeline.year_questions(namespace, _year))
-            elif _topic and _drill:
-                assistant_md = show_topic_detail(pipeline.topic_questions(namespace, _topic))
+            elif it == "coverage_target":
+                assistant_md = cover_target_md(_rows, _R.get("total", 0), intent.get("percent") or 80)
+                st.markdown(assistant_md)
+            elif it == "year_questions" and intent.get("year"):
+                assistant_md = show_year_detail(pipeline.year_questions(namespace, intent["year"]))
+            elif it == "topic_questions" and intent.get("topic"):
+                assistant_md = show_topic_detail(pipeline.topic_questions(namespace, intent["topic"]))
             else:
                 # Flexible answer that obeys the student's exact wording (count, length, format).
                 assistant_md = pipeline.chat_reply(st.session_state[chat_key], namespace=namespace)

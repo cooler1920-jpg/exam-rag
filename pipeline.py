@@ -690,3 +690,44 @@ def chat_reply(history, namespace=""):
         return (rag._gen_text(prompt) or "").strip() or "I couldn't find that in your papers."
     except Exception:
         return "Sorry, I couldn't answer that just now — please try again."
+
+
+def classify_intent(question, topics, years):
+    """Understand a (possibly misspelt / Hinglish) question and decide how to answer it.
+    Returns {intent, topic, year, percent}. Typo-tolerant because the model reads the meaning."""
+    tl = ", ".join(topics[:30]) or "(none)"
+    yl = ", ".join(sorted(years, reverse=True)) or "(none)"
+    prompt = (
+        "You route a student's question in an exam-analysis app. The question MAY HAVE SPELLING "
+        "MISTAKES, typos, or Hinglish — work out the intended meaning anyway.\n"
+        'Return ONLY JSON: {"intent": "...", "topic": null, "year": null, "percent": null}.\n'
+        "intent is exactly one of:\n"
+        "- \"coverage_by_year\": the share/percentage each topic covers WITHIN each exam/year "
+        "(a per-year split), or a request to show that as a pie/chart.\n"
+        "- \"coverage_target\": which or how many topics to study to COVER a target like 80% or 90% "
+        "of all questions — set percent to that number.\n"
+        "- \"topic_questions\": show the actual past questions of ONE named topic — set topic.\n"
+        "- \"year_questions\": show the actual past questions of ONE year — set year.\n"
+        "- \"general\": anything else (predictions, what to study, study plan, explanations, tips, "
+        "counts, comparisons, general chat).\n"
+        "topic = the exact matching name from KNOWN TOPICS, else null. "
+        "year = a 4-digit year from KNOWN YEARS, else null. "
+        "percent = the integer target for coverage_target, else null.\n\n"
+        f"KNOWN TOPICS: {tl}\nKNOWN YEARS: {yl}\n\nQUESTION: {question}"
+    )
+    try:
+        d = rag._gen_json(prompt)
+    except Exception:
+        return {"intent": "general", "topic": None, "year": None, "percent": None}
+    intent = d.get("intent")
+    if intent not in ("coverage_by_year", "coverage_target", "topic_questions",
+                      "year_questions", "general"):
+        intent = "general"
+    topic = d.get("topic") if d.get("topic") in topics else None
+    yr = d.get("year")
+    yr = str(yr) if (yr is not None and str(yr) in years) else None
+    try:
+        pct = int(d.get("percent")) if d.get("percent") not in (None, "") else None
+    except Exception:
+        pct = None
+    return {"intent": intent, "topic": topic, "year": yr, "percent": pct}
