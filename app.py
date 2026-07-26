@@ -564,20 +564,31 @@ with st.sidebar:
         st.markdown('<div class="navlabel">⚙️ Tools</div>', unsafe_allow_html=True)
         with st.expander("Settings"):
             st.markdown("**✅ Compare with a real paper**")
+            st.caption("Upload a recent paper → we check what we predicted vs what actually came.")
             actual_file = st.file_uploader("Upload a recent real paper to check accuracy",
                                            type=["pdf", "docx", "txt", "md"], key="actual")
             if actual_file and st.button("Compare", use_container_width=True):
                 path = _save_upload(actual_file)
-                with st.spinner("Reading & comparing…"):
-                    topics = pipeline.extract_topics(path)
-                    result = pipeline.compare(namespace, topics)
-                os.remove(path)
-                if result:
+                result = None
+                try:
+                    with st.spinner("Reading the paper & comparing… (a big PDF can take a minute)"):
+                        topics = pipeline.extract_topics(path)
+                        result = pipeline.compare(namespace, topics)
+                except Exception as e:
+                    result = {"error": str(e)[:200]}
+                finally:
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+                if result and result.get("actual_count"):
                     try:
                         pipeline.save_backtest(namespace, result, actual_file.name)
                     except Exception:
                         pass
-                st.session_state["acc"] = result
+                # always store SOMETHING so the result panel shows a message (never silent)
+                st.session_state["acc"] = result or {"actual_count": 0}
+                st.rerun()
             st.divider()
             if st.button("🗑️ Reset my data", use_container_width=True):
                 pipeline.reset_space(namespace)
@@ -630,6 +641,54 @@ chat_key = f"chat_{namespace}"
 st.session_state.setdefault(chat_key, [])
 
 st.title("💬 Study assistant")
+
+# --- Prediction accuracy (shows at the TOP the moment you Compare a real paper) ---
+if st.session_state.get("acc") is not None:
+    result = st.session_state["acc"]
+    with st.container(border=True):
+        c = st.columns([6, 1])
+        c[0].markdown("### 🎯 Prediction vs reality")
+        if c[1].button("✖ Hide", key="hideacc"):
+            st.session_state.pop("acc", None)
+            st.rerun()
+        if result.get("error"):
+            st.error(f"Couldn't read that paper: {result['error']}")
+        elif not result.get("actual_count"):
+            st.warning("I couldn't find any questions in that file. Make sure it's a real question "
+                       "paper (PDF/DOCX/text) with readable text, then try Compare again.")
+        else:
+            m, p = result["match_pct"], result["precision_pct"]
+            k1, k2, k3 = st.columns(3)
+            k1.metric("We predicted right", f"{m}%",
+                      help="Of the topics that actually appeared, how many we had flagged as likely")
+            k2.metric("Precision", f"{p}%",
+                      help="Of our 'likely' picks, how many actually appeared")
+            k3.metric("Topics in the real paper", result["actual_count"])
+            verdict = ("🟢 Strong — our prediction was reliable." if m >= 80
+                       else "🟡 Decent — add a few more past papers to improve." if m >= 50
+                       else "🔴 Add more past papers to make predictions reliable.")
+            st.info(f"We correctly predicted **{m}%** of the topics that actually appeared. {verdict}")
+            hits = result.get("hits", [])
+            surprises = result.get("surprises", [])
+            fa = result.get("false_alarms", [])
+            cA, cB = st.columns(2)
+            with cA:
+                st.markdown("**✅ We predicted these — and they came:**")
+                st.markdown("\n".join(f"- {h['actual']} _(predicted {h['prob']}%)_"
+                                      for h in hits[:12]) or "- (none)")
+            with cB:
+                st.markdown("**⚠️ Came in the exam — we missed:**")
+                st.markdown("\n".join(f"- {s['actual']}" for s in surprises[:12]) or "- (none)")
+            if fa:
+                with st.expander("🔮 We predicted these, but they didn't appear this time"):
+                    st.markdown("\n".join(f"- {f['topic']} _({f['prob']}%)_" for f in fa[:15]))
+            with st.expander("📄 Full topic-by-topic table"):
+                st.dataframe(
+                    [{"Topic in real paper": r["actual"],
+                      "We predicted": (f"{r['prob']}%" if r["matched_to"] else "— not predicted"),
+                      "Result": "✅ predicted" if r["hit"] else "⚠️ missed"}
+                     for r in result["results"]],
+                    use_container_width=True, hide_index=True)
 
 # --- Auto report: 5 sections built automatically from the papers (cached per session) ---
 report_key = f"report_{namespace}"
@@ -689,34 +748,6 @@ else:
     with st.expander("🧠 Top topic explained"):
         render_structured_flat(R.get("explain", {}), with_chart=False)
     st.caption("💬 Need anything more? Just ask below.")
-
-# --- Accuracy panel (toggled after a comparison) ---
-if st.session_state.get("acc") is not None:
-    result = st.session_state["acc"]
-    with st.container(border=True):
-        c = st.columns([6, 1])
-        c[0].markdown("### ✅ Accuracy check")
-        if c[1].button("✖ Hide", key="hideacc"):
-            st.session_state.pop("acc", None)
-            st.rerun()
-        if not result or result.get("actual_count", 0) == 0:
-            st.info("Couldn't read that paper, or add past papers first.")
-        else:
-            m, p = result["match_pct"], result["precision_pct"]
-            a, b, c2 = st.columns(3)
-            a.metric("Prediction accuracy", f"{m}%")
-            b.metric("Precision", f"{p}%")
-            c2.metric("Topics in real paper", result["actual_count"])
-            verdict = ("Strong — reliable for this subject." if m >= 80
-                       else "Decent — add a few more past papers." if m >= 50
-                       else "Add more past papers to make it reliable.")
-            st.info(f"Correctly covered **{m}%** of the topics that appeared. {verdict}")
-            st.dataframe(
-                [{"Topic in real paper": r["actual"],
-                  "We predicted": (f"{r['prob']}%" if r["matched_to"] else "— new"),
-                  "Result": "✅ matched" if r["hit"] else "⚠️ missed"}
-                 for r in result["results"]],
-                use_container_width=True, hide_index=True)
 
 # --- Conversation ---
 for msg in st.session_state[chat_key]:

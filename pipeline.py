@@ -322,10 +322,14 @@ def _cos(a, b):
 
 
 def extract_topics(path):
-    """Read a paper and return its list of topics WITHOUT storing it (keeps the test fair)."""
+    """Read a paper and return its list of topics WITHOUT storing it (keeps the test fair).
+    Skips pages that fail to read so one bad page doesn't sink the whole comparison."""
     topics = []
     for page_no, png, text in pages_from_file(path):
-        qs = rag.transcribe_page(png) if png else rag.transcribe_text(text)
+        try:
+            qs = rag.transcribe_page(png) if png else rag.transcribe_text(text)
+        except Exception:
+            continue
         for q in qs:
             t = (q.get("topic", "") or "").strip()
             if t:
