@@ -712,8 +712,10 @@ def classify_intent(question, topics, years):
         "of all questions — set percent to that number.\n"
         "- \"topic_questions\": show the actual past questions of ONE named topic — set topic.\n"
         "- \"year_questions\": show the actual past questions of ONE year — set year.\n"
+        "- \"accuracy\": how well our prediction matched a real/recent paper — 'how much match', "
+        "'how accurate/successful were your predictions', 'compare result', 'match percentage'.\n"
         "- \"general\": anything else (predictions, what to study, study plan, explanations, tips, "
-        "counts, comparisons, general chat).\n"
+        "counts, general chat).\n"
         "topic = the exact matching name from KNOWN TOPICS, else null. "
         "year = a 4-digit year from KNOWN YEARS, else null. "
         "percent = the integer target for coverage_target, else null.\n\n"
@@ -725,7 +727,7 @@ def classify_intent(question, topics, years):
         return {"intent": "general", "topic": None, "year": None, "percent": None}
     intent = d.get("intent")
     if intent not in ("coverage_by_year", "coverage_target", "topic_questions",
-                      "year_questions", "general"):
+                      "year_questions", "accuracy", "general"):
         intent = "general"
     topic = d.get("topic") if d.get("topic") in topics else None
     yr = d.get("year")

@@ -301,6 +301,33 @@ def cover_target_md(rows, total, target=80):
     return "\n".join(lines)
 
 
+def accuracy_md(namespace):
+    """Show the match % from past 'Compare with a real paper' checks (how well we matched reality)."""
+    try:
+        hist = pipeline.get_history(namespace)
+    except Exception:
+        hist = []
+    if not hist:
+        return ("I haven't matched against a real paper yet. To see the **match %**: open "
+                "**⚙️ Tools → Settings → ✅ Compare with a real paper**, upload a recent exam paper, "
+                "and press **Compare**. You'll see how many predicted topics actually appeared.")
+    hist = sorted(hist, key=lambda x: x.get("created_at", 0), reverse=True)
+    last = hist[0]
+    lines = [f"**Latest match check** — _{last.get('paper', 'recent paper')}_ ({last.get('date', '')}):",
+             f"- 🎯 **{last.get('accuracy', 0)}% topic match** — that share of the topics that appeared "
+             f"were ones we had predicted.",
+             f"- ✅ Precision **{last.get('precision', 0)}%** — that share of our 'likely' picks actually came.",
+             f"- Topics in that paper: **{last.get('actual', 0)}**."]
+    if len(hist) > 1:
+        lines.append("\n**Past checks:**")
+        for h in hist[:6]:
+            lines.append(f"- {h.get('date', '')} — {h.get('paper', 'paper')}: **{h.get('accuracy', 0)}%** match")
+        avg = round(sum(h.get("accuracy", 0) for h in hist) / len(hist))
+        lines.append(f"\n💡 Average match across {len(hist)} checks: **{avg}%**.")
+    lines.append("\nRun a fresh check anytime: **⚙️ Tools → Settings → ✅ Compare with a real paper**.")
+    return "\n".join(lines)
+
+
 def show_coverage(series):
     """Render a PIE chart of topic coverage for each exam year, then the exact % text. Returns md."""
     import pandas as pd
@@ -659,15 +686,15 @@ if st.session_state.get("acc") is not None:
         else:
             m, p = result["match_pct"], result["precision_pct"]
             k1, k2, k3 = st.columns(3)
-            k1.metric("We predicted right", f"{m}%",
-                      help="Of the topics that actually appeared, how many we had flagged as likely")
+            k1.metric("🎯 Topic match", f"{m}%",
+                      help="Of the topics that actually appeared in this paper, how many we had predicted")
             k2.metric("Precision", f"{p}%",
                       help="Of our 'likely' picks, how many actually appeared")
             k3.metric("Topics in the real paper", result["actual_count"])
-            verdict = ("🟢 Strong — our prediction was reliable." if m >= 80
-                       else "🟡 Decent — add a few more past papers to improve." if m >= 50
-                       else "🔴 Add more past papers to make predictions reliable.")
-            st.info(f"We correctly predicted **{m}%** of the topics that actually appeared. {verdict}")
+            verdict = ("🟢 Strong — this recent paper matches your old papers well." if m >= 80
+                       else "🟡 Decent — add a few more past papers to improve the match." if m >= 50
+                       else "🔴 Low match — add more past papers to make predictions reliable.")
+            st.info(f"This recent paper is a **{m}% topic match** with your old papers. {verdict}")
             hits = result.get("hits", [])
             surprises = result.get("surprises", [])
             fa = result.get("false_alarms", [])
@@ -784,7 +811,10 @@ if user_msg:
             # AI router: understands the question (typos/Hinglish included) and picks how to answer.
             intent = pipeline.classify_intent(user_msg, _topics, _years)
             it = intent.get("intent")
-            if it == "coverage_by_year":
+            if it == "accuracy":
+                assistant_md = accuracy_md(namespace)
+                st.markdown(assistant_md)
+            elif it == "coverage_by_year":
                 assistant_md = show_coverage(_series)
             elif it == "coverage_target":
                 assistant_md = cover_target_md(_rows, _R.get("total", 0), intent.get("percent") or 80)
